@@ -397,7 +397,7 @@ Every diagram template gives the inline SVG an accessible name and description: 
 
 ### Offline fonts
 
-By default a diagram loads Instrument Serif, Geist and Geist Mono from Google Fonts, the only network request it makes. Ask for **system fonts** (or set the font source to `system` in your style guide) and the file makes no network requests at all: the stacks fall back to the platform's own serif, sans and monospace faces. See [Font source](skills/diagram-design/references/style-guide.md#font-source).
+A diagram makes no network request. By default its fonts (Instrument Serif, Geist and Geist Mono) are embedded in the page as data, in the `diagram-fonts` style every template carries. Ask for **system fonts** (or set the font source to `system` in your style guide) and nothing is embedded: the stacks fall back to the platform's own serif, sans and monospace faces. See [Font source](skills/diagram-design/references/style-guide.md#font-source).
 
 ### Manual override
 
@@ -525,7 +525,7 @@ Or just ask in natural language:
 "Save my-diagram.html as PNG."
 ```
 
-- **SVG** extracts the `<svg>` node and injects Google Fonts so it renders standalone in browsers, Figma, and Illustrator. Animation bindings follow namespaced keyframes even when property names use CSS escapes. Pass `--system-fonts` to skip the font import for offline use.
+- **SVG** extracts the `<svg>` node and carries the page's embedded fonts with it, so it renders standalone in browsers, Figma, and Illustrator and imports nothing. Animation bindings follow namespaced keyframes even when property names use CSS escapes. Pass `--system-fonts` to leave the fonts out.
 - **PNG** rasterizes the diagram via Playwright at 2× by default. One-time setup: `pip install playwright && playwright install chromium`.
 
 Both formats are diagram-only: editorial cards and headers from `-full` variants aren't included. For a screenshot of the full editorial layout, use your browser's print-to-PDF or full-page screenshot. See [`skills/diagram-design/references/export.md`](skills/diagram-design/references/export.md) for the full procedure.
@@ -713,9 +713,9 @@ No matter how many types exist, the agent only reads the one you need. Add a new
 
 - A routine request ("make me a flowchart") loads `SKILL.md`, exactly one type reference, and at most the two core references (`primitives-core.md`, `layout-budget.md`), and nothing else.
 - Before drawing, the agent states the chosen type, pattern, size, and planned cuts, then renders.
-- The output is one `.html` file that opens double-clicked, offline, with no network requests beyond Google Fonts, and none at all with system fonts.
+- The output is one `.html` file that opens double-clicked, offline, with no network requests.
 - Screen readers announce the diagram's title and description; `prefers-reduced-motion` shows the complete static frame.
-- `python3 skills/diagram-design/scripts/self_check.py <file>` prints `OK` on the generated file (add `--offline` to also fail on the Google Fonts link).
+- `python3 skills/diagram-design/scripts/self_check.py <file>` prints `OK` on the generated file; it fails a file that loads a remote stylesheet.
 - After brand onboarding, new diagrams use your site's paper, ink, accent, and fonts, with a fidelity receipt naming each.
 
 If any of these fail, that's a bug worth filing.

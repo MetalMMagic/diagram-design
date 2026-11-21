@@ -207,7 +207,7 @@ Extractors in this checkout: `skills/diagram-design/scripts/drawio_extract.py`, 
 
 **Never export unprompted.** Procedure: [`export.md`](../skills/diagram-design/references/export.md).
 
-- SVG: first `<svg>` only, XML-escaped Google Fonts `@import`, diagram-only (no full-page cards).
+- SVG: first `<svg>` only, the page's embedded `@font-face` rules and no `@import`, diagram-only (no full-page cards).
 - PNG: Playwright screenshot of that SVG box, transparent background. Motion HTML: `?motion=static`, wait for `document.fonts.ready`, `data-frame="static"`.
 
 ```
