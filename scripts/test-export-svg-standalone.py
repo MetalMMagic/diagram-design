@@ -49,6 +49,24 @@ def exportable_assets() -> list[Path]:
     )
 
 
+# A woff2 header in base64, as a page carries its fonts after generation.
+FONT_DATA = "data:font/woff2;base64,d09GMgABAAAAAA//8AAA+/=="
+FONT_MARKER = '<style id="diagram-fonts"></style>'
+FONT_LINK_RE = re.compile(r"<link\b[^>]*fonts\.googleapis\.com[^>]*>", re.IGNORECASE)
+
+
+def embedded_font_page(source: str) -> str:
+    """The page with two faces embedded as data in its diagram-fonts style."""
+    faces = (
+        f'@font-face{{font-family:"Geist";font-weight:400;src:url({FONT_DATA}) format("woff2")}}'
+        f'@font-face{{font-family:"Instrument Serif";src:url("{FONT_DATA}") format("woff2")}}'
+    )
+    page = FONT_LINK_RE.sub(FONT_MARKER, source, count=1)
+    if FONT_MARKER not in page:
+        raise AssertionError("fixture page has no font marker to fill")
+    return page.replace(FONT_MARKER, f'<style id="diagram-fonts">{faces}</style>', 1)
+
+
 def embedded_css(svg: str) -> str:
     match = re.search(r"<style>(.*?)</style>", svg, re.DOTALL)
     return match.group(1) if match else ""
@@ -702,11 +720,48 @@ class ExportSvgStandaloneTests(unittest.TestCase):
         self.assertIn("class=\"station\"", svg)
         self.assertIn("<style>", svg)
 
+    def test_embedded_page_fonts_travel_with_the_svg(self) -> None:
+        source = ASSETS / "example-loop.html"
+        html = embedded_font_page(source.read_text(encoding="utf-8"))
+        exported = self.mod.export_svg_document(html, source)
+        css = embedded_css(exported)
+        self.assertIn(f'src:url({FONT_DATA}) format("woff2")', css)
+        self.assertIn(f'src:url("{FONT_DATA}")', css)
+        self.assertEqual(css.count("@font-face"), 2)
+        self.assertNotIn("@import", exported)
+        for host in ("fonts.googleapis.com", "fonts.gstatic.com"):
+            self.assertNotIn(host, exported)
+        self.assertIn("#example-loop-root .station", css)
+        ET.fromstring(exported.split("\n", 1)[1])
+        offline = self.mod.export_svg_document(html, source, system_fonts=True)
+        self.assertNotIn("@font-face", offline)
+        self.assertNotIn(FONT_DATA, offline)
+        self.assertNotIn("@import", offline)
+        self.assertIn("#example-loop-root .station", offline)
+
+    def test_page_css_import_is_not_carried(self) -> None:
+        html = '<style>@import url("https://cdn.example/theme.css"); @import "local.css";'
+        html += '.paint {fill:#ff0000;}</style>'
+        html += '<svg viewBox="0 0 10 10"><rect class="paint"/></svg>'
+        with contextlib.redirect_stderr(io.StringIO()):
+            exported = self.mod.export_svg_document(html, Path("imports.html"))
+        self.assertNotIn("@import", exported)
+        self.assertNotIn("cdn.example", exported)
+        self.assertIn("#imports-root .paint", exported)
+
+    def test_fonts_only_style_does_not_satisfy_the_css_gate(self) -> None:
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg"><defs><style>'
+               f'@font-face {{ font-family: Geist; src:url({FONT_DATA}); }}'
+               '</style></defs><rect class="paint"/></svg>')
+        with self.assertRaises(ValueError):
+            self.mod.assert_export_gate(svg)
+
     def test_system_fonts_export_makes_no_font_request(self) -> None:
         source = ASSETS / "example-loop.html"
         html = source.read_text(encoding="utf-8")
         default = self.mod.export_svg_document(html, source)
-        self.assertIn("fonts.googleapis.com", default)
+        self.assertNotIn("fonts.googleapis.com", default)
+        self.assertNotIn("@import", default)
         offline = self.mod.export_svg_document(html, source, system_fonts=True)
         self.assertNotIn("fonts.googleapis.com", offline)
         self.assertNotIn("@import", offline)
@@ -1214,7 +1269,9 @@ class ExportSvgStandaloneTests(unittest.TestCase):
             root = ET.fromstring(self.mod.export_svg_document(source.read_text(encoding="utf-8"), source))
             self.assertEqual(root[0].tag, "{http://www.w3.org/2000/svg}title")
             self.assertEqual(root[1].tag, "{http://www.w3.org/2000/svg}desc")
-        html = '<svg viewBox="0 0 40 40"><!-- before title --><title><![CDATA[Literal </title> text]]></title>'
+        # The page CSS is what makes a new <defs>: the SVG imports nothing of its own.
+        html = '<style>svg rect {fill: #ff0000;}</style>'
+        html += '<svg viewBox="0 0 40 40"><!-- before title --><title><![CDATA[Literal </title> text]]></title>'
         html += '<desc>Keep description</desc><rect width="40" height="40"/></svg>'
         root = ET.fromstring(self.mod.export_svg_document(html, Path("title.html")))
         self.assertEqual(root[0].text, "Literal </title> text")
@@ -1511,7 +1568,7 @@ class ExportSvgStandaloneTests(unittest.TestCase):
         self.assertIn('@media (min-width: 10px) {', css)
         self.assertIn('#media-root .paint { fill: #0000ff; }', css)
         self.assertNotIn('padding', css)
-        blocks = list(self.mod._css_blocks(css[css.index("');") + 3:]))
+        blocks = list(self.mod._css_blocks(css))
         self.assertEqual(blocks[0][0], '#media-root .paint')
         self.assertEqual(blocks[1][0], '@media print')
         self.assertIn('#media-root .paint', blocks[1][1])

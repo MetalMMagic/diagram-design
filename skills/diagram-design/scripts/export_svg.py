@@ -31,17 +31,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable, Iterator
 
-GOOGLE_FONTS_IMPORT = (
-    "@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1"
-    "&amp;family=Geist:wght@400;500;600"
-    "&amp;family=Geist+Mono:wght@400;500;600"
-    "&amp;family=Noto+Serif:ital@0;1"
-    "&amp;family=Noto+Sans+KR:wght@400;500;600"
-    "&amp;family=Noto+Serif+KR:wght@400"
-    "&amp;family=Noto+Sans+TC:wght@400;500;600"
-    "&amp;family=Noto+Serif+TC:wght@400"
-    "&amp;display=swap');"
-)
+FONT_FACE_PRELUDE_RE = re.compile(r"@font-face\b", re.IGNORECASE)
+# The SVG fetches nothing: its fonts are the page's own @font-face rules,
+# carried as written (embedded as data), never a stylesheet import.
+CSS_IMPORT_STATEMENT_RE = re.compile(r"@import\b", re.IGNORECASE)
 
 # Page chrome that must not follow a diagram fragment out of its host document.
 # The bare `svg { width; min-width }` rule is page layout too (see
@@ -960,6 +953,9 @@ def _diagram_css_leaf(rule: _CssRule, root_id: str, names: dict[str, str], origi
     kept: list[str] = []
     selector = rule.selector.strip()
     if rule.statement:
+        if CSS_IMPORT_STATEMENT_RE.match(selector):
+            print(f"warning: dropping CSS @import in SVG export: {selector[:80]}", file=sys.stderr)
+            return ""
         return escape_css_for_xml(selector + ";")
     body = rule.css[rule.start:rule.end].strip()
     if not selector or not body:
@@ -970,7 +966,7 @@ def _diagram_css_leaf(rule: _CssRule, root_id: str, names: dict[str, str], origi
         original = name[1:-1] if quote else name
         kept.append(escape_css_for_xml(f"{prefix} {quote}{names[original]}{quote} {{ {body} }}"))
         return "\n      ".join(kept)
-    if re.match(r"@font-face\b", selector, re.IGNORECASE):
+    if FONT_FACE_PRELUDE_RE.match(selector):
         if not system_fonts:
             kept.append(escape_css_for_xml(f"{selector} {{ {body} }}"))
         return "\n      ".join(kept)
@@ -1096,18 +1092,16 @@ def leading_accessibility_end(svg: str, pos: int) -> int:
         pos = close.end()
 
 
-def merge_style_into_defs(svg: str, style_css: str, system_fonts: bool = False) -> str:
-    """Ensure one <defs> and place a <style> with fonts + diagram CSS first.
+def merge_style_into_defs(svg: str, style_css: str) -> str:
+    """Ensure one <defs> and place a <style> with the carried page CSS first.
 
-    With system_fonts the Google Fonts @import is left out, so the SVG makes no
-    network request and its font stacks fall through to installed faces.
+    The page's @font-face rules travel inside that CSS (left out with
+    system_fonts upstream); nothing is imported, so the SVG makes no network
+    request.
     """
-    parts = [] if system_fonts else [GOOGLE_FONTS_IMPORT]
-    if style_css.strip():
-        parts.append(style_css.strip())
-    if not parts:
+    if not style_css.strip():
         return svg
-    style_tag = "<style>" + "\n      ".join(parts) + "</style>"
+    style_tag = "<style>" + style_css.strip() + "</style>"
 
     defs_match = re.search(r"<defs\b[^>]*>", svg, re.IGNORECASE)
     if defs_match:
@@ -1506,10 +1500,11 @@ def normalize_rgba_presentation_attrs(svg: str) -> str:
 
 
 def has_diagram_stylesheet(svg: str) -> bool:
-    """True when a <style> block contains CSS rules beyond the fonts @import."""
+    """True when a <style> block contains CSS rules beyond fonts (@font-face, @import)."""
     for block in STYLE_BLOCK_RE.findall(svg):
         stripped = re.sub(r"@import\b[^;]*;", "", block, flags=re.IGNORECASE)
         stripped = strip_css_comments(stripped)
+        stripped = re.sub(r"@font-face\s*\{[^{}]*\}", "", stripped, flags=re.IGNORECASE)
         if RULE_RE.search(stripped):
             return True
     return False
@@ -1518,7 +1513,7 @@ def has_diagram_stylesheet(svg: str) -> bool:
 def assert_export_gate(svg: str) -> None:
     """Refuse a class-styled fragment that shipped without diagram CSS.
 
-    A fonts-only <style> (Google Fonts @import with no rules) does not count —
+    A fonts-only <style> (@font-face with no rules) does not count —
     class-based fills would still render as black boxes.
     """
     uses_classes = False
@@ -1556,7 +1551,7 @@ def export_svg_document(html: str, source_path: Path, system_fonts: bool = False
     names = _keyframe_names(rules, root_id)
     diagram_css = _diagram_css_rules(rules, root_id, names, original_root_id, system_fonts)
     svg = namespace_inline_animations(svg, names)
-    svg = merge_style_into_defs(svg, diagram_css, system_fonts)
+    svg = merge_style_into_defs(svg, diagram_css)
     svg = namespace_defs_ids(svg, slug)
     svg = xml_safe_comments(svg)
     svg = normalize_rgba_presentation_attrs(svg)
@@ -1584,7 +1579,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--system-fonts",
         action="store_true",
-        help="omit the Google Fonts @import so the SVG makes no network request",
+        help="leave out the page's @font-face rules so the SVG carries no font and uses installed faces",
     )
     args = parser.parse_args(argv)
 
