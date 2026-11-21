@@ -22,6 +22,9 @@ Versioning note: pull requests do not edit the plugin version. After each merge 
 - An exported SVG carries the page's own `@font-face` rules and writes no `@import`, so it makes no font request; `--system-fonts` leaves the fonts out.
 - Templates and examples carry an empty `<style id="diagram-fonts">` where the Google Fonts link was; a page's fonts are embedded there as data, and no Noto face is linked (CJK stacks keep their system faces). The font source is `embedded` by default, or `system`.
 
+- The docs-sync, Steps, Unit Grid, requirement-traceability, event-modeling and schedule-network checks, and the exploded, axonometric-plan and icon-gallery builders, work with the font marker instead of the Google Fonts link: no builder writes the link, and docs sync fails any file of the skill that names a Google font host or lacks the marker.
+- The privacy policy says a generated page calls no font host.
+
 ### Fixed
 
 - The packaged self-check rejects a document that stopped early — a truncated file, a mojibake byte, or unbalanced container markup — instead of passing the part that survived.

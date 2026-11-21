@@ -196,7 +196,7 @@ Type-reference snippets write roles as placeholders: `{ink}`, `{ink @ 0.40}` for
 
 **Node treatments** (focal, backend/API/step, store/state, external/cloud, input/user, optional/async, security/boundary): fill and stroke per [style-guide.md § Node type → treatment](references/style-guide.md#node-type--treatment).
 
-**Typography:** Instrument Serif for the H1 title and italic callouts, Geist sans 600 for node names, Geist Mono for sublabels, eyebrows, and arrow labels. Sizes, weights, and the font `<link>`: [style-guide.md § Typography](references/style-guide.md#typography); per-preset type ramp: [output-spec.md](references/output-spec.md). When the user asks for offline output, system fonts, or no Google Fonts, follow [style-guide.md § Font source](references/style-guide.md#font-source).
+**Typography:** Instrument Serif for the H1 title and italic callouts, Geist sans 600 for node names, Geist Mono for sublabels, eyebrows, and arrow labels. Sizes, weights, and the font marker (the empty `<style id="diagram-fonts">` every template carries; never add a font link): [style-guide.md § Typography](references/style-guide.md#typography); per-preset type ramp: [output-spec.md](references/output-spec.md). The font source is `embedded` by default; when the user asks for system fonts or the smallest file, follow [style-guide.md § Font source](references/style-guide.md#font-source).
 
 **Non-Latin labels** — extend the family: [Korean](references/style-guide.md#korean-labels), [Chinese](references/style-guide.md#traditional-chinese-labels), [Cyrillic](references/style-guide.md#cyrillic-labels).
 
@@ -361,7 +361,7 @@ The size preset sets the `viewBox` **and** the type ramp; `faithful` is the only
 
 Always produce a single self-contained `.html` file:
 
-- Embedded CSS (no external except Google Fonts)
+- Embedded CSS (nothing external: fonts are embedded as data in the `diagram-fonts` style, or left to the system)
 - Inline SVG (no external images)
 - Static by default; minimal inline JavaScript only for explicit animation controls/state
 
