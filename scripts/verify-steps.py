@@ -10,7 +10,7 @@ allow-list rather than a list of known tricks:
 
 - The page is parsed as HTML (comments are not marks). No element repeats an
   attribute; the page around the one SVG uses only the shipped page tags and
-  attributes, and only the Google Fonts stylesheet link.
+  attributes, and only the font marker style, <style id="diagram-fonts">.
 - A checked mark (rail rect, medallion circle, number text) carries only its
   own geometry, paint and data attributes, sits under nothing but plain <g>
   groups of the root SVG, and stays inside the viewBox. A number has no child
@@ -64,10 +64,10 @@ MIN_OPACITY = 0.4
 MIN_FONT_SIZE = 8
 HOUSE_FONTS = {"geist", "geist mono", "instrument serif"}
 MAX_STROKE_WIDTH = 4
-FONTS_HREF = "https://fonts.googleapis.com/css2?"
+FONT_STYLE_ID = "diagram-fonts"
 PAGE_TAGS = {
     "html": {"lang"}, "head": set(), "meta": {"charset", "name", "content"}, "title": set(),
-    "link": {"href", "rel"}, "style": set(), "body": set(), "div": {"class"}, "p": {"class"},
+    "style": {"id"}, "body": set(), "div": {"class"}, "p": {"class"},
     "h1": set(), "h2": set(), "h3": set(), "header": {"class"}, "footer": {"class"},
     "section": {"class"}, "article": {"class"}, "span": {"class"}, "main": {"class"}, "ul": {"class"},
     "ol": {"class"}, "li": {"class"}, "code": {"class"}, "em": {"class"}, "strong": {"class"},
@@ -361,8 +361,8 @@ def page_errors(tree: Tree) -> tuple[list[str], Node | None]:
         extra = sorted(set(node.attrs) - (allowed or set()))
         if allowed is None or extra:
             errors.append(f"page: unsupported <{node.tag}> {' '.join(extra)}".rstrip() + " around the diagram")
-        if node.tag == "link" and not (node.attrs.get("rel") == "stylesheet" and node.attrs.get("href", "").startswith(FONTS_HREF)):
-            errors.append("page: only the Google Fonts stylesheet link is allowed")
+        if node.tag == "style" and "id" in node.attrs and node.attrs["id"] != FONT_STYLE_ID:
+            errors.append(f"page: only the style with id {FONT_STYLE_ID!r} may carry an id")
     if svg is not None and any(node.tag not in SVG_CONTAINERS for node in svg.ancestors()):
         errors.append("page: the diagram SVG must sit in block containers (html, body, div, main, section, article)")
     if svg is not None and not set(svg.attrs) <= ROOT_ATTRS:

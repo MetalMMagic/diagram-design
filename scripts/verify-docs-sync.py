@@ -34,13 +34,14 @@ ADR 0004 split:
    keeps its five type roles across all three presets, and every font-size in
    SKILL.md, references/primitives-core.md (the §6 markup patterns), and the
    grid owner is a canonical role size or falls inside a named exception.
-13. Every copy of the Google Fonts css2 link must request the families
-   assets/template.html does, and the export @import must include them. A copy
-   in SKILL.md or any reference is held to the same parity even where no copy
-   is required.
+13. Every template and the style guide's Font stack block must carry the
+   one font marker, <style id="diagram-fonts"></style>, and no file of the
+   skill (SKILL.md, a reference, a template) may link a Google Fonts
+   stylesheet. The export procedure must write no @import and must carry the
+   page's @font-face rules.
 14. Every --font-serif in a template must reach 'Noto Serif' before any CJK
-   serif face, which Google Fonts also slices Cyrillic into, and the
-   template's own font link must request it.
+   serif face, which Google Fonts also slices Cyrillic into, and every
+   template must carry the font marker that holds the page's fonts.
 15. Every surface that lists the size presets for selection — the SKILL.md
    and README output-dial tables and the import commands — must name
    exactly the presets in the output-spec.md size table, in its order.
@@ -1575,33 +1576,19 @@ def check_manifest_descriptions(errors: list[str], root: Path) -> None:
 
 
 SKILL_PACKAGE = Path("skills/diagram-design")
-# Either quote style: the backreference ends the value at its own quote.
-FONT_LINK = re.compile(
-    r"""href=(?P<quote>["'])(?P<url>(?:(?!(?P=quote)).)*fonts\.googleapis\.com(?:(?!(?P=quote)).)*)(?P=quote)"""
-)
-# Paths inside the skill package that carry the same css2 link as
-# assets/template.html. template-terminal.html is absent on purpose: the
-# terminal skin loads Geist Mono alone. SKILL.md carried a copy until the
-# ADR 0004 split routed its typography to style-guide.md; a copy that comes
-# back is still checked, as an optional surface below.
-FONT_LINK_SURFACES = (
+# The one slot every page keeps for its fonts: empty in the shipped assets,
+# filled with @font-face rules holding woff2 data before a page ships.
+FONT_MARKER = '<style id="diagram-fonts"></style>'
+# Paths inside the skill package that must carry the marker once: every
+# template and the style guide's Font stack block.
+FONT_MARKER_SURFACES = (
+    Path("assets/template.html"),
     Path("assets/template-dark.html"),
     Path("assets/template-full.html"),
     Path("assets/template-motion.html"),
+    Path("assets/template-terminal.html"),
     Path("references/style-guide.md"),
 )
-# A real css2 copy, as opposed to prose such as `<link href="...fonts.googleapis.com...">`.
-CSS2_LINK = re.compile(
-    r"""href=(?P<quote>["'])(?P<url>(?:(?!(?P=quote)).)*fonts\.googleapis\.com/css2\?(?:(?!(?P=quote)).)*)(?P=quote)"""
-)
-
-
-def optional_font_link_surfaces(root: Path) -> list[Path]:
-    """SKILL.md and every reference not already required to carry the link."""
-    package = root / SKILL_PACKAGE
-    references = sorted((package / "references").glob("*.md"))
-    candidates = [Path("SKILL.md"), *(path.relative_to(package) for path in references)]
-    return [path for path in candidates if path not in FONT_LINK_SURFACES]
 TITLE_STACK_TEMPLATES = (
     Path("assets/template.html"),
     Path("assets/template-dark.html"),
@@ -1619,91 +1606,71 @@ CJK_SERIF_FACES = (
 SERIF_STACK = re.compile(r"--font-serif\s*:\s*([^;]+);")
 
 
-def font_families(url: str) -> set[str]:
-    """The `family=` parameters a Google Fonts css2 URL actually requests."""
-    return {
-        part.split(":", 1)[0]
-        for part in url.replace("&amp;", "&").split("&")
-        if part.startswith("family=")
-    }
+# A Google Fonts host named anywhere in the skill is a remote font request in the
+# making: the skill ships no font stylesheet link, only the marker above.
+GOOGLE_FONT_HOSTS = ("fonts.googleapis.com", "fonts.gstatic.com")
 
 
-def family_names(families: set[str]) -> str:
-    return ", ".join(name.removeprefix("family=").replace("+", " ")
-                     for name in sorted(families))
+def skill_text_surfaces(root: Path) -> list[Path]:
+    """SKILL.md, every reference and every asset page of the skill package."""
+    package = root / SKILL_PACKAGE
+    return [
+        package / "SKILL.md",
+        *sorted((package / "references").glob("*.md")),
+        *sorted((package / "assets").glob("*.html")),
+    ]
 
 
 def check_export_font_parity(errors: list[str], root: Path) -> None:
-    """Every copy of the Google Fonts link must request the same faces.
+    """Every font surface carries the marker; none names a Google font host.
 
-    assets/template.html is the source. The other three templates and the style
-    guide's Font stack block carry the same css2 link and must request exactly
-    its families, as must any copy in SKILL.md or another reference; the export
-    @import must request at least them. The strings live in different files and drifted apart once already:
-    the CJK faces reached assets/template.html but never the @import in
-    export.md, so a Korean or Chinese diagram exported to .svg silently lost its
-    type. That failure only shows up on a machine other than the author's,
-    which is exactly the case the faces are in the link to prevent.
+    The templates and the style guide's Font stack block each carry the one
+    marker, <style id="diagram-fonts"></style>, where a page's embedded fonts go.
+    No file of the skill names a Google Fonts host, so no page, example or
+    reference can tell an agent to link a font stylesheet; the host names are
+    kept here, in the checker, as its word list. The export procedure writes no
+    @import and carries the page's @font-face rules: a copy of the old step that
+    injected the stylesheet import would make every exported .svg request a host.
     """
-    template = root / SKILL_PACKAGE / "assets/template.html"
-    export = root / SKILL_PACKAGE / "references/export.md"
-    for path in (template, export):
+    package = root / SKILL_PACKAGE
+    for relative in FONT_MARKER_SURFACES:
+        path = package / relative
         if not path.is_file():
-            errors.append(f"font-parity surface is missing: {path.name}")
-            return
-
-    link = FONT_LINK.search(template.read_text(encoding="utf-8"))
-    imported = re.search(r"@import url\('([^']+)'\)",
-                         export.read_text(encoding="utf-8"))
-    if not link or not imported:
-        errors.append(
-            "could not locate the font link in assets/template.html or the "
-            "@import in references/export.md"
-        )
-        return
-
-    families = font_families(link.group("url"))
-    missing = families - font_families(imported.group(1))
-    if missing:
-        errors.append(
-            f"references/export.md @import omits {family_names(missing)}, which "
-            f"assets/template.html requests; an exported .svg would resolve "
-            f"those scripts through whatever font the viewer happens to have"
-        )
-
-    def report_drift(relative: Path, url: str) -> None:
-        requested = font_families(url)
-        drift = [
-            f"{label} {family_names(names)}"
-            for label, names in (
-                ("missing", families - requested),
-                ("extra", requested - families),
-            )
-            if names
-        ]
-        if drift:
+            errors.append(f"font-marker surface is missing: {relative.as_posix()}")
+            continue
+        found = path.read_text(encoding="utf-8").count(FONT_MARKER)
+        if found != 1:
             errors.append(
-                f"{relative.as_posix()} font link drifts from assets/template.html: "
-                + "; ".join(drift)
+                f"{relative.as_posix()} must carry the font marker {FONT_MARKER} "
+                f"exactly once, found {found}"
             )
 
-    for relative in FONT_LINK_SURFACES:
-        path = root / SKILL_PACKAGE / relative
+    for path in skill_text_surfaces(root):
         if not path.is_file():
-            errors.append(f"font-parity surface is missing: {relative.as_posix()}")
             continue
-        surface_link = FONT_LINK.search(path.read_text(encoding="utf-8"))
-        if not surface_link:
-            errors.append(f"could not locate the font link in {relative.as_posix()}")
-            continue
-        report_drift(relative, surface_link.group("url"))
+        source = path.read_text(encoding="utf-8")
+        named = [host for host in GOOGLE_FONT_HOSTS if host in source]
+        if named:
+            errors.append(
+                f"{path.relative_to(package).as_posix()} names {', '.join(named)}; "
+                f"fonts are embedded as data in the {FONT_MARKER} style, never linked"
+            )
 
-    for relative in optional_font_link_surfaces(root):
-        path = root / SKILL_PACKAGE / relative
-        if not path.is_file():
-            continue
-        for copy in CSS2_LINK.finditer(path.read_text(encoding="utf-8")):
-            report_drift(relative, copy.group("url"))
+    export = package / "references/export.md"
+    if not export.is_file():
+        errors.append("font-marker surface is missing: references/export.md")
+        return
+    export_text = export.read_text(encoding="utf-8")
+    if re.search(r"@import\s+url\(", export_text):
+        errors.append(
+            "references/export.md shows an @import url(...); an exported .svg "
+            "carries the page's @font-face rules and imports nothing"
+        )
+    if "@font-face" not in export_text or "diagram-fonts" not in export_text:
+        errors.append(
+            "references/export.md does not say that the exported .svg carries the "
+            "page's @font-face rules from its diagram-fonts style"
+        )
 
 
 def title_stack_error(name: str, stack: str) -> str | None:
@@ -1733,9 +1700,9 @@ def check_title_fallback_order(errors: list[str], root: Path) -> None:
     CJK face as well, so a stack that reaches one of them first renders the
     title in a Korean, Chinese, or Japanese design's Cyrillic instead of the
     face built for it. Every declaration counts, so an override such as a
-    dark-mode block cannot reorder the stack unseen. The template's own css2
-    link must also request Noto Serif: parity only compares the copies with
-    each other, so dropping the family from all of them at once passes it.
+    dark-mode block cannot reorder the stack unseen. Each template must also
+    carry the font marker, so a template that loses it is named here beside
+    the stack that needs the faces.
     """
     for relative in TITLE_STACK_TEMPLATES:
         name = relative.as_posix()
@@ -1751,12 +1718,11 @@ def check_title_fallback_order(errors: list[str], root: Path) -> None:
         for problem in dict.fromkeys(title_stack_error(name, stack) for stack in stacks):
             if problem:
                 errors.append(problem)
-        link = FONT_LINK.search(source)
-        if not link or "family=Noto+Serif" not in font_families(link.group("url")):
+        if source.count(FONT_MARKER) != 1:
             errors.append(
-                f"{name} font link does not request Noto Serif, which its "
-                "--font-serif names for Cyrillic titles; without it they resolve "
-                "through whatever serif the viewer has installed"
+                f"{name} carries no font marker {FONT_MARKER}, the slot that holds "
+                "the page's fonts; without it a page that embeds them has nowhere "
+                "to put them"
             )
 
 
@@ -1874,7 +1840,7 @@ def main() -> int:
         "manifest descriptions, Factory install contract, type-count routing, "
         "High-Level invariants, onboarding trust boundary, Line dark-skin contract, "
         "Loop station origin, "
-        "font-link parity, title fallback order, type-ramp contract, registered legacy "
+        "font-marker parity, title fallback order, type-ramp contract, registered legacy "
         "type sizes, split routing, export surface parity"
     )
     return 0

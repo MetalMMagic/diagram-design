@@ -52,7 +52,6 @@ SAFE_SUBJECT_RE = re.compile(
     re.IGNORECASE,
 )
 CSS_ESCAPE_RE = re.compile(r"\\(?:([0-9a-fA-F]{1,6})[ \t\n\r\f]?|(.))", re.DOTALL)
-FONTS_HREF = "https://fonts.googleapis.com/"
 # A cell may sit only inside the chart root and plain groups or links.
 CELL_ANCESTORS = {"g", "a"}
 CONDITIONAL = ("systemlanguage", "requiredextensions", "requiredfeatures")
@@ -346,9 +345,8 @@ class Presentation(HTMLParser):
         style = declarations(tag_attrs.get("style"))
         if tag == "style":
             self.in_style = True
-        if tag == "link" and "stylesheet" in (tag_attrs.get("rel") or "").lower().split() \
-                and not (tag_attrs.get("href") or "").startswith(FONTS_HREF):
-            self.errors.append("only the Google Fonts stylesheet may be linked; a linked stylesheet can repaint cells")
+        if tag == "link" and "stylesheet" in (tag_attrs.get("rel") or "").lower().split():
+            self.errors.append("no stylesheet may be linked, a font stylesheet included (fonts are embedded in the diagram-fonts style); a linked stylesheet can repaint cells")
         is_cell = tag == "rect" and "data-unit-cell" in tag_attrs
         if tag in {"svg", "g"} or is_cell:
             if "transform" in tag_attrs:

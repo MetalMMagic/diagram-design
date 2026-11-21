@@ -11,7 +11,11 @@ import sys
 import tempfile
 import unittest
 
-from verify_static_svg_visibility import TEMPLATE_CSS, FONTS_HREF
+from verify_static_svg_visibility import TEMPLATE_CSS, FONT_STYLE_ID
+
+# The end of the page stylesheet. The font marker is a <style> too, ahead of it, so a
+# rule added "at the end of the style" must anchor here and not on the first </style>.
+STYLE_END = "</style></head>"
 
 ROOT = Path(__file__).resolve().parent.parent
 VERIFIER = ROOT / "scripts/verify-schedule-network.py"
@@ -131,7 +135,7 @@ def fixture(dark=False, full=False):
         if full
         else ""
     )
-    return f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Schedule network · Diagram Design</title><link href="{FONTS_HREF}" rel="stylesheet"><style>{css}</style></head><body><div class="frame"><p class="eyebrow">Schedule network · Diagram Design</p><h1>The parallel task has one day of float</h1><p class="subtitle">An illustrative task plan. Follow precedence, then read the schedule in each box.</p><div class="canvas"><svg viewBox="0 0 1200 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="{slug}-title {slug}-desc" data-diagram-type="schedule-network" data-time-unit="days" data-project-duration="9" data-schedule-origin="0"><title id="{slug}-title">Illustrative five-task schedule</title><desc id="{slug}-desc">A branches into B and C, then joins at D before E. Finish is nine days; C has one day of float.</desc>{"".join(body)}</svg></div>{cards}</div></body></html>\n'
+    return f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Schedule network · Diagram Design</title><style id="{FONT_STYLE_ID}"></style><style>{css}</style></head><body><div class="frame"><p class="eyebrow">Schedule network · Diagram Design</p><h1>The parallel task has one day of float</h1><p class="subtitle">An illustrative task plan. Follow precedence, then read the schedule in each box.</p><div class="canvas"><svg viewBox="0 0 1200 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="{slug}-title {slug}-desc" data-diagram-type="schedule-network" data-time-unit="days" data-project-duration="9" data-schedule-origin="0"><title id="{slug}-title">Illustrative five-task schedule</title><desc id="{slug}-desc">A branches into B and C, then joins at D before E. Finish is nine days; C has one day of float.</desc>{"".join(body)}</svg></div>{cards}</div></body></html>\n'
 
 
 class ScheduleTests(unittest.TestCase):
@@ -203,9 +207,10 @@ class ScheduleTests(unittest.TestCase):
             ('data-task-id="A"', 'transform="translate(1)" data-task-id="A"'),
             ('data-task-id="A"', 'opacity="0.01" data-task-id="A"'),
             ('data-schedule-field="tf"', 'fill-opacity="0" data-schedule-field="tf"'),
-            ("</style>", "text{fill:transparent!important}</style>"),
-            ("</style>", r"g{tr\61nsform:translateX(200px)}</style>"),
-            ("</style>", r"g{\64 isplay:none}</style>"),
+            (STYLE_END, "text{fill:transparent!important}" + STYLE_END),
+            (STYLE_END, r"g{tr\61nsform:translateX(200px)}" + STYLE_END),
+            (STYLE_END, r"g{\64 isplay:none}" + STYLE_END),
+            ("</head>", '<link href="https://fonts.googleapis.com/css2?family=Geist&display=swap" rel="stylesheet"></head>'),
             ("M 904 322 L 912 328 L 904 334", "M 904 322 L 912 300 L 904 334"),
             ("M 288 300 H 304", "M 288 30 H 304"),
             ("Q 312 300 312 292", "Q 900 900 312 292"),

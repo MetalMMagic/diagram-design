@@ -79,12 +79,12 @@ def main() -> int:
     dorm_a.tag_at = (dorm_b.tag_at[0], dorm_b.tag_at[1] - 30)
     body, vh = module.build_svg(plan, "light", False, "mutant")
     sk = module.SKINS["light"]
-    crowded = module.MINIMAL.format(eyebrow=module.EYEBROW, title=plan.title, font=module.FONT_LINK, slug="mutant",
+    crowded = module.MINIMAL.format(eyebrow=module.EYEBROW, title=plan.title, slug="mutant",
                                     desc=plan.desc, vh=vh, body=body, **{k: sk[k] for k in ("paper", "ink", "muted", "accent")})
 
     def build(plan):
         body, vh = module.build_svg(plan, "light", False, "mutant")
-        return module.MINIMAL.format(eyebrow=module.EYEBROW, title=plan.title, font=module.FONT_LINK, slug="mutant",
+        return module.MINIMAL.format(eyebrow=module.EYEBROW, title=plan.title, slug="mutant",
                                      desc=plan.desc, vh=vh, body=body, **{k: sk[k] for k in ("paper", "ink", "muted", "accent")})
 
     # A room tag moved onto the next room, still centred on its own declared point.

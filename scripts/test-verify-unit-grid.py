@@ -66,6 +66,14 @@ def wrap(source: str, first: int, last: int, opening: str, closing: str) -> str:
     return source[:start] + opening + source[start:end] + closing + source[end:]
 
 
+def with_rule(source: str, rule: str) -> str:
+    """*source* with *rule* added to the end of its page style, after the font marker."""
+    anchor = "</style>\n</head>"
+    if source.count(anchor) != 1:
+        raise AssertionError("the page style no longer ends the head; update the fixture")
+    return source.replace(anchor, rule + anchor, 1)
+
+
 def after_cells(source: str, snippet: str) -> str:
     end = source.index(cell_tag(source, 99)) + len(cell_tag(source, 99))
     return source[:end] + snippet + source[end:]
@@ -74,7 +82,7 @@ def after_cells(source: str, snippet: str) -> str:
 def adversarial(source: str, ink: str, empty: str, accent: str = ACCENT) -> list[tuple[str, str, str | tuple[str, ...] | None]]:
     """Edits that change what a browser draws while the declared state stays the same."""
     def css(rule: str) -> str:
-        return source.replace("</style>", rule + "</style>", 1)
+        return with_rule(source, rule)
     tag0, tag99 = cell_tag(source, 0), cell_tag(source, 99)
     return [
         # 1. cells are found by the HTML parser, so text that only looks like cells does not count
@@ -107,6 +115,8 @@ def adversarial(source: str, ink: str, empty: str, accent: str = ACCENT) -> list
         ("CSS char reference", source.replace("</svg>", "<style>rect{&#102;ill:#000}</style></svg>", 1), "CSS fill"),
         ("CSS @import", source.replace("<style>", "<style>@import url('x.css');", 1), "@import"),
         ("extra stylesheet link", source.replace("</head>", '<link rel="stylesheet" href="x.css"></head>', 1), "stylesheet"),
+        ("Google font link", source.replace("</head>", '<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400&display=swap" rel="stylesheet"></head>', 1), "stylesheet"),
+        ("embedded fonts in the font marker allowed", source.replace('<style id="diagram-fonts"></style>', '<style id="diagram-fonts">@font-face{font-family:"Geist";font-weight:400;src:url(data:font/woff2;base64,AAAA) format("woff2")}</style>', 1), None),
         ("CSS stroke", css("rect{stroke:#000;stroke-width:20px}"), "CSS stroke"),
         ("CSS stroke-width", css("rect{stroke-width:20px}"), "CSS stroke-width"),
         ("CSS all", css("rect{all:unset}"), "CSS all"),
@@ -148,8 +158,8 @@ def adversarial(source: str, ink: str, empty: str, accent: str = ACCENT) -> list
         *[(f"CSS {prop} on a cell", css(f'rect[data-unit-index="0"]{{{prop}:40px}}'), f"CSS {prop}")
           for prop in ("width", "height", "rx", "ry", "r", "cx", "cy")],
         ("CSS width on every element", css("*{width:40px}"), "CSS width"),
-        ("CSS width by id", source.replace(tag0, tag0.replace("<rect ", '<rect id="c0" ', 1), 1).replace("</style>", "#c0{width:40px}</style>", 1), "CSS width"),
-        ("CSS width by class", source.replace(tag0, tag0.replace("<rect ", '<rect class="c" ', 1), 1).replace("</style>", ".c{width:40px}</style>", 1), "class"),
+        ("CSS width by id", source.replace(tag0, tag0.replace("<rect ", '<rect id="c0" ', 1), 1).replace("</style>\n</head>", "#c0{width:40px}</style>\n</head>", 1), "CSS width"),
+        ("CSS width by class", source.replace(tag0, tag0.replace("<rect ", '<rect class="c" ', 1), 1).replace("</style>\n</head>", ".c{width:40px}</style>\n</head>", 1), "class"),
         ("inline width on a cell", source.replace(tag0, tag0.replace("<rect ", '<rect style="width:40px" ', 1), 1), "style attribute"),
         ("CSS width on page elements allowed", css(".note{width:10px}div.chart p{height:2px}"), None),
         # 8. the printed labels must be visible ink text inside the chart
@@ -177,8 +187,8 @@ def adversarial(source: str, ink: str, empty: str, accent: str = ACCENT) -> list
         ("stroked tspan beside grid", after_cells(source, f'<text x="626" y="200" font-size="20">X<tspan stroke="{ink}" stroke-width="40">Y</tspan></text>'), "later <text> cannot be bounded"),
         ("unstroked X beside grid allowed", after_cells(source, '<text x="626" y="200" font-size="20">X</text>'), None),
         # 6. a second :root rule must not break token parsing
-        ("second :root rule", re.sub(r"(:root\{[^}]*?)(--accent:[^;}]*);([^}]*)\}", r"\1\3;\2}", source, count=1).replace("</style>", ":root{--grid-gap:4px}</style>", 1), None),
-        ("later :root moves --ink", source.replace("</style>", f":root{{--ink:{empty}}}</style>", 1), "painted"),
+        ("second :root rule", re.sub(r"(:root\{[^}]*?)(--accent:[^;}]*);([^}]*)\}", r"\1\3;\2}", source, count=1).replace("</style>\n</head>", ":root{--grid-gap:4px}</style>\n</head>", 1), None),
+        ("later :root moves --ink", with_rule(source, f":root{{--ink:{empty}}}"), "painted"),
     ]
 
 
@@ -275,9 +285,9 @@ def main() -> int:
             (f"{path.name} visibility hidden", edit_cell(source, 0, 'visibility="hidden"'), "hidden by visibility"),
             (f"{path.name} display none", edit_cell(source, 0, 'display="none"'), "hidden by display"),
             (f"{path.name} mask", edit_cell(source, 0, 'mask="url(#m)"'), "hidden by mask"),
-            (f"{path.name} CSS fill", source.replace("</style>", f'rect[data-unit-index="0"]{{fill:{empty}}}</style>', 1), "CSS fill"),
-            (f"{path.name} CSS opacity", source.replace("</style>", "rect{opacity:0}</style>", 1), "CSS opacity"),
-            (f"{path.name} CSS display none", source.replace("</style>", "rect{display:none}</style>", 1), "CSS display"),
+            (f"{path.name} CSS fill", with_rule(source, f'rect[data-unit-index="0"]{{fill:{empty}}}'), "CSS fill"),
+            (f"{path.name} CSS opacity", with_rule(source, "rect{opacity:0}"), "CSS opacity"),
+            (f"{path.name} CSS display none", with_rule(source, "rect{display:none}"), "CSS display"),
             (f"{path.name} SMIL set", source.replace("</svg>", f'<set href="#c0" attributeName="fill" to="{empty}"/></svg>', 1), "can repaint or move"),
             (f"{path.name} overlay rect", source.replace("</svg>", f'<rect x="0" y="0" width="1000" height="390" fill="{empty}"/></svg>', 1), "later <rect>"),
         ])

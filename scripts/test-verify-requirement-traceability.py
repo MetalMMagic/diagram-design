@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 VERIFIER = ROOT / "scripts/verify-requirement-traceability.py"
 EXAMPLE = ROOT / "skills/diagram-design/assets/example-requirement-traceability.html"
 DARK = ROOT / "skills/diagram-design/assets/example-requirement-traceability-dark.html"
+# The end of the page stylesheet. The font marker is a <style> too, ahead of it, so a
+# rule added "at the end of the style" must anchor here and not on the first </style>.
+STYLE_END = "</style>\n</head>"
 
 
 def load_verifier():
@@ -55,7 +58,7 @@ def main() -> None:
         ("</svg>", '<rect width="1200" height="720" fill="#f5f5f5"/></svg>', "cover"),
         ("</svg>", '<line x1="0" x2="1200" y1="360" y2="360" stroke="#f5f5f5" stroke-width="720"/></svg>', "cover"),
         (first_group, first_group.replace("<g ", r'<g style="display:n\6f ne" '), "hidden or too faint"),
-        *((("</style>", rule + "</style>", "stylesheet")
+        *(((STYLE_END, rule + STYLE_END, "stylesheet")
           for rule in (
               '[data-trace-kind]{display:none}', 'g g{display:none}', 'svg>g{display:none}',
               '@media screen{svg g g{opacity:0}}', 'g text{fill:transparent!important}',
@@ -67,10 +70,10 @@ def main() -> None:
         (first_group, first_group.replace("<g ", '<g transform="scale(0)" '), "unsupported SVG"),
         (first_group, first_group.replace("<g ", '<g style="transform:scale(0)" '), "unsupported SVG"),
         (first_group, first_group.replace("<g ", '<g style="scale:0" '), "unsupported SVG"),
-        ("</style>", "g[data-trace-row]{display:none}</style>", "stylesheet must not select SVG"),
-        ("</style>", "g[*|data-trace-row]{display:none}</style>", "stylesheet must not select SVG"),
-        ("</style>", "g[|data-trace-row]{display:none}</style>", "stylesheet must not select SVG"),
-        ("</style>", r"g[data-\74 race-row]{display:none}</style>", "stylesheet must not select SVG"),
+        (STYLE_END, "g[data-trace-row]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        (STYLE_END, "g[*|data-trace-row]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        (STYLE_END, "g[|data-trace-row]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        (STYLE_END, r"g[data-\74 race-row]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
         ('data-trace-source="Review brief §1"', 'data-trace-source=""', "missing source reference"),
         ('data-trace-row="REQ-02"', 'data-trace-row="REQ-01"', "duplicate requirement row ID"),
         ('data-trace-from="DES-01"', 'data-trace-from="DES-99"', "source does not resolve"),
@@ -93,7 +96,7 @@ def main() -> None:
         ("</body>", "<script>document.querySelector('svg').remove()</script></body>", "HTML"),
         ("</head>", '<link rel="stylesheet" href="hide.css"></head>', "HTML"),
         ('<div class="canvas">', "<!--" + root + "</svg>-->" + '<div class="canvas">', "HTML"),
-        *(("</style>", rule + "</style>", "unsupported page rule")
+        *((STYLE_END, rule + STYLE_END, "unsupported page rule")
           for rule in (".frame{max-width:0}", ".canvas{overflow-x:hidden}", "body{padding:48px 3000px}")),
         # Labels and cells moved off the canvas or out of their cell.
         (label_tag, label_tag.replace('x="272"', 'x="5272"'), "label is outside the viewBox"),
@@ -108,7 +111,7 @@ def main() -> None:
         (first_group, first_group.replace("<g ", '<g opacity="0.1" '), "too faint"),
         (label_tag, label_tag.replace("<text ", '<text fill-opacity="0.1" '), "too faint"),
         # Page CSS that moves the canvas, and style blocks the browser applies.
-        *(("</style>", rule + "</style>", "unsupported page rule") for rule in (
+        *((STYLE_END, rule + STYLE_END, "unsupported page rule") for rule in (
             "h1{margin:-5000px 0 12px}", ".eyebrow{margin:0 0 -5000px}", ".subtitle{position:relative;top:-5000px}",
             ".cards p{font-size:1200px;line-height:1;margin:-1100px 0 0}", "h1{transform:translateY(-5000px)}",
         )),
@@ -116,9 +119,13 @@ def main() -> None:
         ('<title>Illustrative requirement traceability · Diagram Design</title>',
          '<title>x <!--</title><style>svg{visibility:hidden}</style>', "unsupported page rule"),
         ("</body>", "<style>svg{visibility:hidden}</style></body>", "<style> must sit in <head>"),
-        ("</style>", "</style><style>svg{visibility:hidden}</style>", "exactly one <style>"),
+        (STYLE_END, "</style><style>svg{visibility:hidden}" + STYLE_END, "exactly one <style>"),
         ('<meta charset="UTF-8">', '<meta charset="UTF-8"><meta name="description" content="<!--">', "HTML"),
-        ("css2?family=", "css2?family=Flow+Block&family=", "HTML"),
+        ("</head>", '<link href="https://fonts.googleapis.com/css2?family=Flow+Block" rel="stylesheet"></head>', "no stylesheet is linked"),
+        ('<style id="diagram-fonts"></style>', '<style id="page-rules"></style>', "unsupported HTML"),
+        ('<style id="diagram-fonts"></style>', '<style id="diagram-fonts">svg{visibility:hidden}</style>', "font marker style may hold only @font-face"),
+        ('<style id="diagram-fonts"></style>', "", "exactly one font marker"),
+        ('<style id="diagram-fonts"></style>', '<style id="diagram-fonts"></style><style id="diagram-fonts"></style>', "exactly one font marker"),
         *(("</svg></div>", "</svg></div>" + extra, "template order")
           for extra in ("<h1>x</h1>", '<div class="cards"><section><p>x</p></section></div>')),
         # Strokes that paint the paper over labels.
@@ -220,8 +227,13 @@ def main() -> None:
 
         # A comment and an escaped bracket in a class name are not attribute selectors.
         inert_css = r"/* g[data-trace-row]{display:none} */ .literal\[data-trace-row\]{display:none}"
-        assert "</style>" in source
-        candidate.write_text(source.replace("</style>", inert_css + "</style>", 1), encoding="utf-8")
+        assert STYLE_END in source
+        candidate.write_text(source.replace(STYLE_END, inert_css + STYLE_END, 1), encoding="utf-8")
+        assert verifier.check(candidate) == []
+
+        # A page that embeds its fonts fills the marker with @font-face rules and passes.
+        embedded = '<style id="diagram-fonts">@font-face{font-family:"Geist";src:url(data:font/woff2;base64,AAAA) format("woff2")}</style>'
+        candidate.write_text(source.replace('<style id="diagram-fonts"></style>', embedded, 1), encoding="utf-8")
         assert verifier.check(candidate) == []
     print("OK requirement traceability: source, IDs, typed links, and explicit gaps")
 

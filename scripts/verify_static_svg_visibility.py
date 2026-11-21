@@ -26,15 +26,14 @@ ROOT_ATTRIBUTES = {"viewBox", "role", "aria-labelledby", "data-diagram-type"}
 # Twice the largest shipped label.
 MAX_FONT_SIZE = 32
 FONT_FAMILIES = {"geist,sans-serif", "geist mono,monospace"}
-FONTS_HREF = (
-    "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600"
-    "&family=Geist+Mono:wght@400;500;600&family=Noto+Serif:ital@0;1&family=Noto+Sans+KR:wght@400;500;600"
-    "&family=Noto+Serif+KR:wght@400&family=Noto+Sans+TC:wght@400;500;600&family=Noto+Serif+TC:wght@400&display=swap"
-)
+# The one slot for a page's fonts: empty in the shipped examples, filled with
+# @font-face rules that hold the faces as data. No stylesheet is ever linked.
+FONT_STYLE_ID = "diagram-fonts"
+FONT_RULES_RE = re.compile(r"(?:\s*@font-face\s*\{[^{}]*\})*\s*")
 # The page skeleton every example shares; anything else around the SVG can hide it.
 PAGE_TAGS = {
     "html": {"lang"}, "head": set(), "meta": {"charset", "name", "content"}, "title": set(),
-    "link": {"href", "rel"}, "style": set(), "body": set(), "div": {"class"}, "p": {"class"},
+    "style": {"id"}, "body": set(), "div": {"class"}, "p": {"class"},
     "h1": set(), "section": set(), "h2": set(),
 }
 PAGE_CLASSES = {"div": {"frame", "canvas", "cards"}, "p": {"eyebrow", "subtitle"}}
@@ -137,6 +136,8 @@ class PageSkeleton(HTMLParser):
         self.stack: list[tuple[str, str | None]] = []
         self.body: list[tuple[int, str, str | None]] = []
         self.styles: list[str] = []
+        self.fonts: list[str] = []
+        self.in_fonts = False
         self.classes: set[str] = set()
         self.depth = 0
         self.svgs = 0
@@ -159,14 +160,15 @@ class PageSkeleton(HTMLParser):
         if (
             tag not in PAGE_TAGS or not set(names) <= PAGE_TAGS[tag]
             or "class" in names and names["class"] not in PAGE_CLASSES.get(tag, set())
-            or tag == "link" and not (names.get("rel") == "stylesheet" and names.get("href") == FONTS_HREF)
+            or tag == "style" and names.get("id", FONT_STYLE_ID) != FONT_STYLE_ID
         ):
-            detail = "; the stylesheet href must match the template's Google Fonts URL" if tag == "link" else ""
+            detail = "; no stylesheet is linked, fonts live in the diagram-fonts style" if tag == "link" else ""
             self.errors.append(f"unsupported HTML around the SVG: <{tag} {' '.join(names)}>".replace(" >", ">") + detail)
         if self.stack[:2] == SVG_PARENTS[:2]:
             self.body.append((len(self.stack), tag, names.get("class")))
         if tag == "style":
-            self.styles.append("")
+            self.in_fonts = "id" in names
+            (self.fonts if self.in_fonts else self.styles).append("")
         if tag == "title":
             self.set_cdata_mode(tag)  # raw text, as in the browser
         if tag not in {"meta", "link"}:
@@ -177,7 +179,7 @@ class PageSkeleton(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if not self.depth and self.stack and self.stack[-1][0] == "style":
-            self.styles[-1] += data
+            (self.fonts if self.in_fonts else self.styles)[-1] += data
 
     def handle_endtag(self, tag: str) -> None:
         if self.depth:
@@ -202,6 +204,11 @@ def page(source: str) -> list[str]:
         errors.append("unclosed HTML around the SVG")
     if len(skeleton.styles) != 1:
         errors.append("HTML allows exactly one <style>")
+    if len(skeleton.fonts) != 1:
+        errors.append(f'HTML needs exactly one font marker <style id="{FONT_STYLE_ID}">')
+    for fonts in skeleton.fonts:
+        if not FONT_RULES_RE.fullmatch(CSS_COMMENT_RE.sub(" ", fonts)):
+            errors.append("the font marker style may hold only @font-face rules")
     cards = skeleton.body[len(BODY) + len(CARDS):]
     if skeleton.body != BODY and not (
         skeleton.body[:len(BODY) + len(CARDS)] == BODY + CARDS and cards and cards == CARD * (len(cards) // len(CARD))

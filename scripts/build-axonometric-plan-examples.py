@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "skills/diagram-design/assets"
-from axonometry import (FONT_LINK, FULL, MINIMAL, SKINS, Proj, Rect,  # noqa: E402
+from axonometry import (FULL, MINIMAL, SKINS, Proj, Rect,  # noqa: E402
                         animated_page, cards_html, f, finish, outline, prism, solid, styles)
 
 EYEBROW = "Axonometric plan · Diagram Design"
@@ -524,10 +524,10 @@ def render_all() -> dict[Path, str]:
             body, vh = build_svg(plan, skin, False, slug)
             sk = SKINS[skin]
             if variant == "-full":
-                html = FULL.format(eyebrow=EYEBROW, title=plan.title, font=FONT_LINK, slug=slug, desc=plan.desc, vh=vh,
+                html = FULL.format(eyebrow=EYEBROW, title=plan.title, slug=slug, desc=plan.desc, vh=vh,
                                    body=body, subtitle=plan.subtitle, cards=cards_html(plan.cards), footer=plan.footer)
             else:
-                html = MINIMAL.format(eyebrow=EYEBROW, title=plan.title, font=FONT_LINK, slug=slug, desc=plan.desc, vh=vh,
+                html = MINIMAL.format(eyebrow=EYEBROW, title=plan.title, slug=slug, desc=plan.desc, vh=vh,
                                       body=body, **{k: sk[k] for k in ("paper", "ink", "muted", "accent")})
             files[ASSETS / f"example-{slug}.html"] = html
         if name in ANIMATED:

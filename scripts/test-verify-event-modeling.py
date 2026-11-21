@@ -11,6 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VERIFIER = ROOT / "scripts/verify-event-modeling.py"
 EXAMPLE = ROOT / "skills/diagram-design/assets/example-event-modeling.html"
+# The end of the page stylesheet. The font marker is a <style> too, ahead of it, so a
+# rule added "at the end of the style" must anchor here and not on the first </style>.
+STYLE_END = "</style></head>"
 
 
 def main() -> None:
@@ -48,7 +51,7 @@ def main() -> None:
         ("</svg>", '<rect width="1200" height="720" fill="#f5f5f5"/></svg>', "cover"),
         ("</svg>", '<line x1="0" x2="1200" y1="360" y2="360" stroke="#f5f5f5" stroke-width="720"/></svg>', "cover"),
         (first_group, first_group.replace("<g ", r'<g style="display:n\6f ne" '), "hidden or too faint"),
-        *((("</style>", rule + "</style>", "stylesheet")
+        *(((STYLE_END, rule + STYLE_END, "stylesheet")
           for rule in (
               '[data-event-kind]{display:none}', 'g g{display:none}', 'svg>g{display:none}',
               '@media screen{svg g g{opacity:0}}', 'g text{fill:transparent!important}',
@@ -56,17 +59,20 @@ def main() -> None:
           ))),
         ('d="M 224 302 V 363"', 'd="M 0 0"', "visible arrow"),
         ('data-event-rel="emits"',  'display="none" data-event-rel="emits"', "visible arrow"),
-        ("</style>", "[data-event-rel]{display:none}</style>", "stylesheet"),
+        (STYLE_END, "[data-event-rel]{display:none}" + STYLE_END, "stylesheet"),
         (first_group, first_group.replace("<g ", '<g display="none" '), "is not printed"),
         (first_group, first_group.replace("<g ", '<g style="display:none" '), "is not printed"),
         (first_group, first_group.replace("<g ", '<g opacity="0" '), "is not printed"),
         (first_group, first_group.replace("<g ", '<g transform="scale(0)" '), "unsupported SVG"),
         (first_group, first_group.replace("<g ", '<g style="transform:scale(0)" '), "unsupported SVG"),
         (first_group, first_group.replace("<g ", '<g style="scale:0" '), "unsupported SVG"),
-        ("</style>", "g[data-event-stage]{display:none}</style>", "stylesheet must not select SVG"),
-        ("</style>", "g[*|data-event-stage]{display:none}</style>", "stylesheet must not select SVG"),
-        ("</style>", "g[|data-event-stage]{display:none}</style>", "stylesheet must not select SVG"),
-        ("</style>", r"g[data-\65 vent-stage]{display:none}</style>", "stylesheet must not select SVG"),
+        (STYLE_END, "g[data-event-stage]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        (STYLE_END, "g[*|data-event-stage]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        (STYLE_END, "g[|data-event-stage]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        (STYLE_END, r"g[data-\65 vent-stage]{display:none}" + STYLE_END, "stylesheet must not select SVG"),
+        ("</head>", '<link href="https://fonts.googleapis.com/css2?family=Flow+Block" rel="stylesheet"></head>', "no stylesheet is linked"),
+        ('<style id="diagram-fonts"></style>', '<style id="diagram-fonts">svg{visibility:hidden}</style>', "font marker style may hold only @font-face"),
+        ('<style id="diagram-fonts"></style>', "", "exactly one font marker"),
         ('data-stage-order="2"', 'data-stage-order="1"', "stage order"),
         ('data-event-stage="STAGE-02"', 'data-event-stage="STAGE-01"', "duplicate stage ID"),
         ('data-diagram-role="timeframe"', 'data-diagram-role="unknown"', "stage role must be timeframe"),
@@ -201,8 +207,13 @@ def main() -> None:
 
         # A comment and an escaped bracket in a class name are not attribute selectors.
         inert_css = r"/* g[data-event-stage]{display:none} */ .literal\[data-event-stage\]{display:none}"
-        assert "</style>" in source
-        candidate.write_text(source.replace("</style>", inert_css + "</style>", 1), encoding="utf-8")
+        assert STYLE_END in source
+        candidate.write_text(source.replace(STYLE_END, inert_css + STYLE_END, 1), encoding="utf-8")
+        assert module.check(candidate) == []
+
+        # A page that embeds its fonts fills the marker with @font-face rules and passes.
+        embedded = '<style id="diagram-fonts">@font-face{font-family:"Geist";src:url(data:font/woff2;base64,AAAA) format("woff2")}</style>'
+        candidate.write_text(source.replace('<style id="diagram-fonts"></style>', embedded, 1), encoding="utf-8")
         assert module.check(candidate) == []
     print("OK event modeling: ordered stages, typed roles, and link endpoints")
 

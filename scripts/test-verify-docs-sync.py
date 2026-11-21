@@ -105,26 +105,33 @@ def load_verify_module():
     return module
 
 
-# Every file that carries the Google Fonts css2 link or the export @import.
+# Every file that carries the font marker or the export procedure.
 # The fixtures copy them from the real tree, so the passing case is the
 # shipped wiring and each mutation below is the only defect in the tree.
-# SKILL.md left both lists when the ADR 0004 split routed its typography to
-# style-guide.md; check_font_link_copies covers a copy that comes back.
 FONT_SURFACES = (
     "assets/template.html",
     "assets/template-dark.html",
     "assets/template-full.html",
     "assets/template-motion.html",
+    "assets/template-terminal.html",
     "references/style-guide.md",
     "references/export.md",
 )
 # Spelled out here rather than read from the verifier: a surface or template
-# dropped from the verifier's own lists must fail a test, not shrink it.
-LINK_SURFACES = (
+# dropped from the verifier's own list must fail a test, not shrink it.
+MARKER_SURFACES = (
+    "assets/template.html",
     "assets/template-dark.html",
     "assets/template-full.html",
     "assets/template-motion.html",
+    "assets/template-terminal.html",
     "references/style-guide.md",
+)
+MARKER = '<style id="diagram-fonts"></style>'
+# The bad case: the remote stylesheet link the skill used to carry.
+GOOGLE_LINK = (
+    '<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400'
+    '&display=swap" rel="stylesheet">'
 )
 # Files the ADR 0004 split made carriers of the type-ramp contract: the grid
 # owner, the two files holding markup patterns, and the spec they answer to.
@@ -140,7 +147,6 @@ TEMPLATES = (
     "assets/template-full.html",
     "assets/template-motion.html",
 )
-NOTO_SERIF_FAMILY = "&family=Noto+Serif:ital@0;1"
 TITLE_ORDER = "'Instrument Serif', 'Noto Serif', 'Noto Serif KR'"
 
 
@@ -198,59 +204,109 @@ def lacks_error(relative: str) -> str:
     )
 
 
-def link_error(relative: str) -> str:
+def marker_error(relative: str, found: int) -> str:
     return (
-        f"{relative} font link does not request Noto Serif, which its "
-        "--font-serif names for Cyrillic titles; without it they resolve "
-        "through whatever serif the viewer has installed"
+        f"{relative} must carry the font marker {MARKER} exactly once, "
+        f"found {found}"
     )
 
 
-def check_font_link_parity(verify) -> None:
-    """Every css2 surface requests the template's families, each one checked."""
+def host_error(relative: str, hosts: str) -> str:
+    return (
+        f"{relative} names {hosts}; fonts are embedded as data in the "
+        f"{MARKER} style, never linked"
+    )
+
+
+def title_marker_error(relative: str) -> str:
+    return (
+        f"{relative} carries no font marker {MARKER}, the slot that holds the "
+        "page's fonts; without it a page that embeds them has nowhere to put them"
+    )
+
+
+IMPORT_ERROR = (
+    "references/export.md shows an @import url(...); an exported .svg "
+    "carries the page's @font-face rules and imports nothing"
+)
+CARRY_ERROR = (
+    "references/export.md does not say that the exported .svg carries the "
+    "page's @font-face rules from its diagram-fonts style"
+)
+
+
+def replace_all(path: Path, old: str, new: str) -> bytes:
+    """Replace every *old* in *path*; return the original bytes."""
+    original = path.read_bytes()
+    path.write_bytes(original.decode("utf-8").replace(old, new).encode("utf-8"))
+    return original
+
+
+def check_font_marker_parity(verify) -> None:
+    """Every font surface carries the marker once; no skill file names a Google host."""
     with font_fixture() as root:
         skill = root / "skills/diagram-design"
         errors = run_checks(root, verify.check_export_font_parity)
         if errors:
-            raise AssertionError(f"shipped font links failed parity: {errors}")
+            raise AssertionError(f"shipped font surfaces failed parity: {errors}")
 
-        for relative in LINK_SURFACES:
+        for relative in MARKER_SURFACES:
             path = skill / relative
-            original = mutate(path, NOTO_SERIF_FAMILY, "")
+            original = replace_all(path, MARKER, "")
             errors = run_checks(root, verify.check_export_font_parity)
-            expected = (
-                f"{relative} font link drifts from assets/template.html: "
-                "missing Noto Serif"
-            )
-            if errors != [expected]:
-                raise AssertionError(f"{relative} dropping a family was not reported: {errors}")
+            if errors != [marker_error(relative, 0)]:
+                raise AssertionError(f"{relative} losing the marker was not reported: {errors}")
             path.write_bytes(original)
 
-        export = skill / "references/export.md"
-        original = mutate(export, "&amp;family=Noto+Serif:ital@0;1", "")
-        errors = run_checks(root, verify.check_export_font_parity)
-        expected = (
-            "references/export.md @import omits Noto Serif, which "
-            "assets/template.html requests; an exported .svg would resolve "
-            "those scripts through whatever font the viewer happens to have"
+            original = replace_all(path, MARKER, MARKER + MARKER)
+            errors = run_checks(root, verify.check_export_font_parity)
+            if errors != [marker_error(relative, 2)]:
+                raise AssertionError(f"{relative} doubling the marker was not reported: {errors}")
+            path.write_bytes(original)
+
+        # A font stylesheet link is refused in a template, a reference and the
+        # style guide, whichever host it names and wherever it sits.
+        for relative in ("assets/template.html", "references/style-guide.md"):
+            path = skill / relative
+            original = path.read_bytes()
+            path.write_bytes(original + f"\n{GOOGLE_LINK}\n".encode("utf-8"))
+            errors = run_checks(root, verify.check_export_font_parity)
+            if errors != [host_error(relative, "fonts.googleapis.com")]:
+                raise AssertionError(f"a font link in {relative} was not reported: {errors}")
+            path.write_bytes(original)
+
+        sample = skill / "references/type-sample.md"
+        sample.write_text(
+            "```css\n@font-face { src: url(https://fonts.gstatic.com/s/geist/g.woff2); }\n```\n"
+            + GOOGLE_LINK
+            + "\n",
+            encoding="utf-8",
         )
-        if errors != [expected]:
-            raise AssertionError(f"export @import drift was not reported: {errors}")
+        errors = run_checks(root, verify.check_export_font_parity)
+        expected = [
+            host_error("references/type-sample.md", "fonts.googleapis.com, fonts.gstatic.com")
+        ]
+        if errors != expected:
+            raise AssertionError(f"a font host in a reference was not reported: {errors}")
+        sample.unlink()
+
+        export = skill / "references/export.md"
+        original = export.read_bytes()
+        export.write_bytes(
+            original + b"\n```svg\n<style>@import url('https://example.test/f.css');</style>\n```\n"
+        )
+        errors = run_checks(root, verify.check_export_font_parity)
+        if errors != [IMPORT_ERROR]:
+            raise AssertionError(f"an export @import was not reported: {errors}")
         export.write_bytes(original)
 
-        style_guide = skill / "references/style-guide.md"
-        original = mutate(
-            style_guide, "&display=swap", "&family=Roboto:wght@400&display=swap"
-        )
-        errors = run_checks(root, verify.check_export_font_parity)
-        expected = (
-            "references/style-guide.md font link drifts from assets/template.html: "
-            "extra Roboto"
-        )
-        if errors != [expected]:
-            raise AssertionError(f"an extra style-guide family was not reported: {errors}")
-        style_guide.write_bytes(original)
-    print("OK font links: every css2 surface requests the template's families")
+        for old in ("@font-face", "diagram-fonts"):
+            original = replace_all(export, old, "gone")
+            errors = run_checks(root, verify.check_export_font_parity)
+            if errors != [CARRY_ERROR]:
+                raise AssertionError(f"an export step without {old} was not reported: {errors}")
+            export.write_bytes(original)
+    print("OK font marker: every surface carries it once and no skill file links a font host")
 
 
 def check_title_stack_order(verify) -> None:
@@ -281,12 +337,12 @@ def check_title_stack_order(verify) -> None:
         for face in ("Noto Serif JP", "Noto Serif HK"):
             original = mutate(
                 template,
-                "</style>",
+                "</style>\n</head>",
                 "@media (prefers-color-scheme: dark) {\n"
                 f"      :root {{ --font-serif: 'Instrument Serif', '{face}', "
                 "'Noto Serif', serif; }\n"
                 "    }\n"
-                "  </style>",
+                "  </style>\n</head>",
             )
             errors = run_checks(root, verify.check_title_fallback_order)
             if errors != [order_error("assets/template.html", face)]:
@@ -307,7 +363,7 @@ def check_title_stack_order(verify) -> None:
             "    }\n"
             "  "
         )
-        mutate(template, "</style>", override * 2 + "</style>")
+        mutate(template, "</style>\n</head>", override * 2 + "</style>\n</head>")
         errors = run_checks(root, verify.check_title_fallback_order)
         expected = [
             order_error("assets/template.html", "Noto Serif KR"),
@@ -326,135 +382,36 @@ def check_title_stack_order(verify) -> None:
     print("OK title stacks: 'Noto Serif' leads every CJK serif face")
 
 
-def check_title_font_link(verify) -> None:
-    """A stack naming Noto Serif is only as good as the link that loads it."""
+def check_title_font_marker(verify) -> None:
+    """A stack naming Noto Serif is reported beside a template with no font marker."""
     with font_fixture() as root:
-        mutate(
-            root / "skills/diagram-design/assets/template-motion.html",
-            NOTO_SERIF_FAMILY,
-            "",
-        )
+        replace_all(root / "skills/diagram-design/assets/template-motion.html", MARKER, "")
         errors = run_checks(
             root, verify.check_export_font_parity, verify.check_title_fallback_order
         )
         expected = [
-            "assets/template-motion.html font link drifts from assets/template.html: "
-            "missing Noto Serif",
-            link_error("assets/template-motion.html"),
+            marker_error("assets/template-motion.html", 0),
+            title_marker_error("assets/template-motion.html"),
         ]
         if errors != expected:
-            raise AssertionError(f"a template link without Noto Serif was not reported: {errors}")
+            raise AssertionError(f"a template without the marker was not reported: {errors}")
 
-    # A failing stack must not hide the failing link beside it.
+    # A failing stack must not hide the missing marker beside it.
     with font_fixture() as root:
         motion = root / "skills/diagram-design/assets/template-motion.html"
         mutate(motion, "'Noto Serif', ", "")
-        mutate(motion, NOTO_SERIF_FAMILY, "")
+        replace_all(motion, MARKER, "")
         errors = run_checks(
             root, verify.check_export_font_parity, verify.check_title_fallback_order
         )
         expected = [
-            "assets/template-motion.html font link drifts from assets/template.html: "
-            "missing Noto Serif",
+            marker_error("assets/template-motion.html", 0),
             lacks_error("assets/template-motion.html"),
-            link_error("assets/template-motion.html"),
+            title_marker_error("assets/template-motion.html"),
         ]
         if errors != expected:
-            raise AssertionError(f"a failing stack hid the failing link beside it: {errors}")
-
-    # Dropping the family from every copy at once leaves parity nothing to
-    # disagree about; only the templates' own links can still catch it.
-    with font_fixture() as root:
-        for relative in FONT_SURFACES:
-            family = (
-                "&amp;family=Noto+Serif:ital@0;1"
-                if relative == "references/export.md"
-                else NOTO_SERIF_FAMILY
-            )
-            mutate(root / "skills/diagram-design" / relative, family, "")
-        errors = run_checks(root, verify.check_export_font_parity)
-        if errors:
-            raise AssertionError(f"a coordinated removal should pass parity: {errors}")
-        errors = run_checks(root, verify.check_title_fallback_order)
-        expected = [link_error(relative) for relative in TEMPLATES]
-        if errors != expected:
-            raise AssertionError(f"a coordinated Noto Serif removal was not reported: {errors}")
-    print("OK title links: every template loads the Noto Serif its stack names")
-
-
-def check_font_link_copies(verify) -> None:
-    """A css2 link outside the required surfaces is still held to parity.
-
-    SKILL.md carried a required copy until the ADR 0004 split routed its
-    typography to style-guide.md. A copy that comes back, in SKILL.md or in any
-    reference, must match the template like every required one does.
-    """
-    style_guide = (ROOT / "skills/diagram-design/references/style-guide.md").read_text(
-        encoding="utf-8"
-    )
-    link = next(line for line in style_guide.splitlines() if "fonts.googleapis.com/css2" in line)
-    drifted = link.replace(NOTO_SERIF_FAMILY, "")
-    if drifted == link:
-        raise AssertionError("style-guide.md font link no longer requests Noto Serif")
-    for relative in ("SKILL.md", "references/primitives-core.md"):
-        shipped = (ROOT / "skills/diagram-design" / relative).read_text(encoding="utf-8")
-        with font_fixture() as root:
-            path = root / "skills/diagram-design" / relative
-            path.write_text(shipped, encoding="utf-8")
-            errors = run_checks(root, verify.check_export_font_parity)
-            if errors:
-                raise AssertionError(f"shipped {relative} failed font parity: {errors}")
-
-            path.write_text(shipped + f"\n```html\n{link}\n```\n", encoding="utf-8")
-            errors = run_checks(root, verify.check_export_font_parity)
-            if errors:
-                raise AssertionError(f"a matching css2 copy in {relative} was rejected: {errors}")
-
-            expected = [
-                f"{relative} font link drifts from assets/template.html: missing Noto Serif"
-            ]
-            for copy in (drifted, single_quoted(drifted)):
-                path.write_text(shipped + f"\n```html\n{copy}\n```\n", encoding="utf-8")
-                errors = run_checks(root, verify.check_export_font_parity)
-                if errors != expected:
-                    raise AssertionError(
-                        f"a drifted css2 copy in {relative} was not reported: {copy} {errors}"
-                    )
-
-            path.write_text(shipped + f"\n```html\n{single_quoted(link)}\n```\n", encoding="utf-8")
-            errors = run_checks(root, verify.check_export_font_parity)
-            if errors:
-                raise AssertionError(
-                    f"a matching single-quoted css2 copy in {relative} was rejected: {errors}"
-                )
-
-    # A required surface may quote its href either way; drift is still drift,
-    # not a missing link.
-    with font_fixture() as root:
-        path = root / "skills/diagram-design/references/style-guide.md"
-        path.write_text(style_guide.replace(link, single_quoted(link)), encoding="utf-8")
-        errors = run_checks(root, verify.check_export_font_parity)
-        if errors:
-            raise AssertionError(f"a single-quoted style-guide link was rejected: {errors}")
-
-        path.write_text(style_guide.replace(link, single_quoted(drifted)), encoding="utf-8")
-        errors = run_checks(root, verify.check_export_font_parity)
-        expected = [
-            "references/style-guide.md font link drifts from assets/template.html: "
-            "missing Noto Serif"
-        ]
-        if errors != expected:
-            raise AssertionError(f"a single-quoted drifted style-guide link was not reported: {errors}")
-    print("OK font links: a css2 copy in SKILL.md or any reference is held to parity")
-
-
-def single_quoted(link: str) -> str:
-    """*link* with its href value in single quotes instead of double."""
-    head, marker, rest = link.partition('href="')
-    value, closing, tail = rest.partition('"')
-    if not marker or not closing:
-        raise AssertionError(f"no double-quoted href to requote in {link!r}")
-    return f"{head}href='{value}'{tail}"
+            raise AssertionError(f"a failing stack hid the missing marker beside it: {errors}")
+    print("OK title markers: every template holds the slot for the faces its stack names")
 
 
 @contextmanager
@@ -2282,10 +2239,9 @@ diagram-design/
             raise AssertionError(f"valid asset citations produced unexpected error: {errs}")
         print("OK reference assets: valid asset citations produce no error")
 
-    check_font_link_parity(verify)
-    check_font_link_copies(verify)
+    check_font_marker_parity(verify)
     check_title_stack_order(verify)
-    check_title_font_link(verify)
+    check_title_font_marker(verify)
     check_style_guide_anchors(verify)
     check_heading_syntax(verify)
     check_size_preset_surfaces(verify)
@@ -2298,7 +2254,7 @@ diagram-design/
         "PASS: docs sync checks references, style-guide anchors, asset citations, "
         "strict-bundler packaging, "
         "routing surfaces, size-preset surfaces, Factory install contract, type-count routing, High-Level invariants, "
-        "font-link parity, the Cyrillic title fallback order, the type-ramp contract, "
+        "font-marker parity, the Cyrillic title fallback order, the type-ramp contract, "
         "split routing, the CRLF fixture fallback in the fixture helper, and gallery guards "
         "(parent/variant model, contiguous ordinals, variant letters, type parity)"
     )
