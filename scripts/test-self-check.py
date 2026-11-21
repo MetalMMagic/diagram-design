@@ -15,6 +15,24 @@ ASSET_DIR = ROOT / "skills/diagram-design/assets"
 TEMPLATE = ASSET_DIR / "template-motion.html"
 EXAMPLE = ASSET_DIR / "example-policy-trace-animated.html"
 STATIC_EXAMPLE = ASSET_DIR / "example-architecture.html"
+# Pages carry their fonts as data in this style; no page loads a font stylesheet.
+FONT_MARKER = '<style id="diagram-fonts"></style>'
+FONT_LINK_RE = re.compile(r"<link\b[^>]*fonts\.googleapis\.com[^>]*>", re.IGNORECASE)
+GOOGLE_FONTS_LINK = (
+    '<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600'
+    '&display=swap" rel="stylesheet">'
+)
+# A woff2 header in base64; "//" inside base64 is data, not a protocol-relative URL.
+FONT_DATA = "data:font/woff2;base64,d09GMgABAAAAAA//8AAA+/=="
+
+
+def font_face(src: str, family: str = "Geist", weight: int = 400) -> str:
+    return f'@font-face{{font-family:"{family}";font-weight:{weight};src:{src} format("woff2")}}'
+
+
+def with_font_marker(source: str) -> str:
+    """The page as it is generated: the font marker where a font link stood."""
+    return FONT_LINK_RE.sub(FONT_MARKER, source, count=1)
 
 
 def load_self_check():
@@ -52,12 +70,12 @@ def main() -> int:
             candidate.write_text(source, encoding="utf-8")
             check_pass(label, candidate)
 
-    check_pass("shipped template", TEMPLATE)
-    check_pass("shipped animated example", EXAMPLE)
-    check_pass("shipped static example", STATIC_EXAMPLE)
+    static = with_font_marker(STATIC_EXAMPLE.read_text(encoding="utf-8"))
+    animated = with_font_marker(EXAMPLE.read_text(encoding="utf-8"))
 
-    static = STATIC_EXAMPLE.read_text(encoding="utf-8")
-    animated = EXAMPLE.read_text(encoding="utf-8")
+    check_source_pass("shipped template", with_font_marker(TEMPLATE.read_text(encoding="utf-8")))
+    check_source_pass("shipped animated example", animated)
+    check_source_pass("shipped static example", static)
 
     # Document completeness: truncation, mojibake and unbalanced markup must all fail.
     # The negative controls below are valid HTML that the balance count must not flag.
@@ -240,14 +258,76 @@ def main() -> int:
             "<body>", "<body><p>Document @import and url(example) syntax.</p>", 1
         ),
     )
+    # No page loads a stylesheet from another host: Google Fonts included.
+    for label, link in (
+        ("Google Fonts stylesheet", GOOGLE_FONTS_LINK),
+        ("lookalike fonts host", GOOGLE_FONTS_LINK.replace(
+            "fonts.googleapis.com", "fonts.googleapis.com.evil.tld", 1)),
+        ("other remote stylesheet",
+         '<link href="https://cdn.example/theme.css" rel="stylesheet">'),
+        ("protocol-relative stylesheet",
+         '<link href="//cdn.example/theme.css" rel="stylesheet">'),
+    ):
+        check_fail(label, static.replace("</head>", link + "</head>", 1), "remote stylesheet")
+
+    # Fonts embedded as data: a font data URL passes inside @font-face only.
+    def embedded(css: str, page: str = static) -> str:
+        if FONT_MARKER not in page:
+            failures.append("fixture has no font marker to fill")
+        return page.replace(FONT_MARKER, f'<style id="diagram-fonts">{css}</style>', 1)
+
+    embedded_page = embedded(
+        font_face(f"url({FONT_DATA})")
+        + font_face(f'url("{FONT_DATA}")', weight=600)
+        + font_face(f"url('{FONT_DATA}')", family="Instrument Serif")
+    )
+    check_source_pass("fonts embedded as data in @font-face", embedded_page)
+    with tempfile.TemporaryDirectory() as scratch:
+        candidate = Path(scratch) / "candidate.html"
+        candidate.write_text(embedded_page, encoding="utf-8")
+        offline_embedded = module.verify(candidate, offline=True)
+    if offline_embedded:
+        failures.append(f"offline: embedded fonts make no request and should pass, got {offline_embedded}")
+    else:
+        print("OK: offline mode passes fonts embedded as data")
+    check_source_pass("embedded fonts in a motion page",
+                      embedded(font_face(f"url({FONT_DATA})"), animated))
+    check_source_pass("embedded font inside @media",
+                      embedded("@media screen { " + font_face(f"url({FONT_DATA})") + " }"))
+    for label, css in (
+        ("font data URL outside @font-face",
+         f".tracked {{ background: url({FONT_DATA}); }}"),
+        ("font data URL in a rule after @font-face",
+         font_face(f"url({FONT_DATA})") + f".tracked {{ background: url({FONT_DATA}); }}"),
+        ("image data URL inside @font-face",
+         font_face("url(data:image/png;base64,iVBORw0KGgo=)")),
+        ("stylesheet data URL inside @font-face",
+         font_face("url(data:text/css;base64,Ym9keXt9)")),
+        ("font data URL that is not base64 inside @font-face",
+         font_face("url(data:font/woff2,wOF2)")),
+        ("remote font file inside @font-face",
+         font_face("url(https://fonts.gstatic.com/s/geist/v1/geist.woff2)")),
+        ("relative font file inside @font-face",
+         font_face("url(fonts/geist.woff2)")),
+        ("remote fallback after an embedded font",
+         font_face(f"url({FONT_DATA}), url(https://tracker.example/f.woff2)")),
+        ("@font-face written inside a comment",
+         f".tracked {{ background: /* @font-face{{ */ url({FONT_DATA}) }}"),
+        ("@font-face written inside a string",
+         f'.tracked {{ --x: "@font-face{{"; background: url({FONT_DATA}) }}'),
+        ("@font-face nested in a style rule",
+         ".tracked { " + font_face(f"url({FONT_DATA})") + " }"),
+    ):
+        check_fail(label, embedded(css), "non-fragment CSS url()")
     check_fail(
-        "lookalike fonts host",
-        static.replace(
-            "https://fonts.googleapis.com/css2",
-            "https://fonts.googleapis.com.evil.tld/css2",
-            1,
-        ),
-        "approved Google Fonts",
+        "font data URL in an inline style",
+        static.replace("<body>", f'<body style="background:url({FONT_DATA})">', 1),
+        "non-fragment CSS url()",
+    )
+    check_fail(
+        "font data URL on an image",
+        static.replace("<body>", f'<body><img src="{FONT_DATA}">', 1),
+        "non-image data URL",
     )
     check_fail(
         "javascript URL",
@@ -451,24 +531,25 @@ def main() -> int:
     else:
         print("OK: every shipped asset's boxed text fits the width budget")
 
-    # --offline: system-font output must make no network request, so the one
-    # remote stylesheet the default contract allows becomes a failure.
-    if module.verify(STATIC_EXAMPLE, offline=False):
-        failures.append("offline off: the Google Fonts link must still pass by default")
-    offline_errors = module.verify(STATIC_EXAMPLE, offline=True)
-    if not any("offline: file loads Google Fonts" in error for error in offline_errors):
+    # --offline: the output makes no network request. A Google Fonts link fails
+    # by default now, and offline mode still names it.
+    with tempfile.TemporaryDirectory() as scratch:
+        candidate = Path(scratch) / "candidate.html"
+        candidate.write_text(static.replace("</head>", GOOGLE_FONTS_LINK + "</head>", 1),
+                             encoding="utf-8")
+        offline_errors = module.verify(candidate, offline=True)
+    if not any("offline: file loads a remote stylesheet" in error for error in offline_errors):
         failures.append(f"offline: Google Fonts link not rejected, got {offline_errors}")
     else:
         print("OK: offline mode rejects the Google Fonts link")
-    system_font = re.sub(r'<link[^>]*fonts\.googleapis\.com[^>]*>', "", static)
     with tempfile.TemporaryDirectory() as scratch:
         candidate = Path(scratch) / "candidate.html"
-        candidate.write_text(system_font, encoding="utf-8")
+        candidate.write_text(static.replace(FONT_MARKER, "", 1), encoding="utf-8")
         errors = module.verify(candidate, offline=True)
     if errors:
         failures.append(f"offline: a system-font file should pass, got {errors}")
     else:
-        print("OK: offline mode passes a file without the font link")
+        print("OK: offline mode passes a file without embedded fonts")
 
     if failures:
         for failure in failures:

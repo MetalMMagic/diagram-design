@@ -18,6 +18,7 @@ Versioning note: pull requests do not edit the plugin version. After each merge 
 - The default light skin's accent is darker, `#bf4520`, so accent text reaches 4.71:1 on paper. The soft and link tokens were adjusted on both skins to match (#161).
 - Type references use the skin's role tokens instead of the default skin's hex values, so they follow whichever skin is active (#65, based on #66).
 - The README is reorganized around a demo, a comparison table, and separate install sections.
+- The packaged self-check passes fonts embedded as woff2 data inside `@font-face`, fails the same data anywhere else, and fails every remote stylesheet, Google Fonts included.
 
 ### Fixed
 

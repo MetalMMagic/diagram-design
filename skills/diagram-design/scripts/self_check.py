@@ -6,7 +6,8 @@ Ships inside the skill so an installed agent can verify its own output:
     python3 <skill-dir>/scripts/self_check.py my-diagram.html
 
 Checks the accessible-SVG contract, the single-file safety rules (no remote
-assets beyond the approved Google Fonts stylesheet, no executable attributes,
+assets and no remote stylesheet, fonts only as woff2 data inside @font-face,
+no executable attributes,
 no scripts other than the one canonical motion controller), document
 completeness (a truncated or mojibake file is rejected rather than passed),
 painted content
@@ -27,7 +28,6 @@ from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlparse
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 MOTION_TEMPLATE = SKILL_DIR / "assets" / "template-motion.html"
@@ -41,6 +41,14 @@ CSS_IMPORT_RE = re.compile(r"@import\b", re.IGNORECASE)
 CSS_URL_RE = re.compile(r"url\(\s*([^)]+?)\s*\)", re.IGNORECASE)
 CSS_IMAGE_SET_RE = re.compile(r"(?:-webkit-)?image-set\s*\(", re.IGNORECASE)
 CSS_REMOTE_RE = re.compile(r"(?:https?:)?//", re.IGNORECASE)
+CSS_FONT_FACE_PRELUDE_RE = re.compile(r"@font-face", re.IGNORECASE)
+CSS_COMMENT_OR_STRING_RE = re.compile(
+    r'"(?:\\[\s\S]|[^"\\])*"|\'(?:\\[\s\S]|[^\'\\])*\'|/\*.*?\*/', re.DOTALL
+)
+# A whole woff2 font as base64 data, quoted or not.
+EMBEDDED_FONT_URL_RE = re.compile(
+    r"url\(\s*(['\"]?)data:font/woff2;base64,[A-Za-z0-9+/]+={0,2}\1\s*\)", re.IGNORECASE
+)
 CSS_REFERENCE_ATTRS = {
     "style",
     "fill",
@@ -465,18 +473,11 @@ def parsed_document(source: str) -> DiagramParser:
     return parser
 
 
-def is_approved_google_fonts_stylesheet(value: str) -> bool:
-    try:
-        parsed = urlparse(value)
-    except ValueError:
-        return False
-    return (
-        parsed.scheme == "https"
-        and parsed.hostname is not None
-        and parsed.hostname.casefold() == "fonts.googleapis.com"
-        and parsed.port is None
-        and parsed.path == "/css2"
-        and not parsed.fragment
+def is_remote_reference(value: str) -> bool:
+    stripped = value.strip()
+    lowered = stripped.casefold()
+    return lowered.startswith(("http://", "https://", "//")) or (
+        ":" in stripped.split("/", 1)[0] and not lowered.startswith("data:")
     )
 
 
@@ -487,17 +488,13 @@ def reference_error(tag: str, rel: str, value: str) -> str | None:
         return None
     if lowered.startswith("javascript:") or lowered.startswith("data:text/html"):
         return f"executable URL on <{tag}>: {stripped[:80]}"
-    remote = lowered.startswith(("http://", "https://", "//")) or (
-        ":" in stripped.split("/", 1)[0] and not lowered.startswith("data:")
-    )
-    if not remote:
+    if not is_remote_reference(stripped):
         if lowered.startswith("data:") and not lowered.startswith("data:image/"):
             return f"non-image data URL on <{tag}>: {stripped[:80]}"
         return None
     if tag == "link" and "stylesheet" in rel.casefold().split():
-        if is_approved_google_fonts_stylesheet(stripped):
-            return None
-        return f"remote stylesheet is not the approved Google Fonts /css2 URL: {stripped[:80]}"
+        # Fonts too: a page carries its fonts as data in @font-face, never a font stylesheet.
+        return f"remote stylesheet is not allowed: {stripped[:80]}"
     return f"remote reference on <{tag}>: {stripped[:80]}"
 
 
@@ -516,9 +513,65 @@ def normalize_css_escapes(source: str) -> str:
     return CSS_ESCAPE_RE.sub(replace, source)
 
 
+def font_face_bodies(css: str) -> list[tuple[int, int]]:
+    """Spans of the bodies of @font-face rules that a browser applies.
+
+    `css` has its comments blanked. Braces inside strings do not count, and an
+    @font-face nested in a style rule (which no browser applies) is not one.
+    """
+    spans: list[tuple[int, int]] = []
+    stack: list[tuple[str, int]] = []
+    prelude_start = 0
+    index = 0
+    while index < len(css):
+        char = css[index]
+        if char in "\"'":
+            index += 1
+            while index < len(css) and css[index] != char:
+                index += 2 if css[index] == "\\" else 1
+        elif char == "{":
+            stack.append((css[prelude_start:index].strip(), index + 1))
+            prelude_start = index + 1
+        elif char == "}":
+            if stack:
+                prelude, start = stack.pop()
+                if CSS_FONT_FACE_PRELUDE_RE.fullmatch(prelude) and all(
+                    outer.startswith("@") for outer, _ in stack
+                ):
+                    spans.append((start, index))
+            prelude_start = index + 1
+        elif char == ";":
+            prelude_start = index + 1
+        index += 1
+    return spans
+
+
+def without_embedded_fonts(css: str) -> str:
+    """The stylesheet with each font embedded as data in an @font-face source removed.
+
+    A woff2 font as base64 data is the one data URL a page may carry in CSS, and
+    only as an @font-face source: the same data anywhere else, any other data URL,
+    and a font file from anywhere else stay in the text for the checks to fail.
+    """
+    masked = CSS_COMMENT_OR_STRING_RE.sub(
+        lambda match: match.group(0) if match.group(0)[0] in "\"'" else " " * len(match.group(0)),
+        css,
+    )
+    cuts = [
+        match.span()
+        for start, end in font_face_bodies(masked)
+        for match in EMBEDDED_FONT_URL_RE.finditer(masked, start, end)
+    ]
+    for start, end in reversed(cuts):
+        css = css[:start] + css[end:]
+    return css
+
+
 def check_css_references(parser: DiagramParser, errors: list[str]) -> None:
     # Match the repository linter's fail-closed treatment of CSS loader syntax.
-    source = normalize_css_escapes("\n".join(parser.styles + parser.css_attributes))
+    # Inline style attributes hold no @font-face, so no font data passes there.
+    source = without_embedded_fonts(normalize_css_escapes("\n".join(parser.styles)))
+    source += "\n" + normalize_css_escapes("\n".join(parser.css_attributes))
     found_loader = False
     if CSS_IMPORT_RE.search(source):
         errors.append("CSS @import is not allowed")
@@ -1136,9 +1189,10 @@ def verify(path: Path, offline: bool = False) -> list[str]:
         finding = reference_error(tag, rel, value)
         if finding:
             errors.append(finding)
-        elif offline and is_approved_google_fonts_stylesheet(value.strip()):
+        if offline and tag == "link" and is_remote_reference(value):
             errors.append(
-                "offline: file loads Google Fonts; remove the font <link> to use system fonts"
+                "offline: file loads a remote stylesheet (a font <link>?); "
+                "remove it to use system fonts or embedded fonts"
             )
     check_svgs(parser, errors)
     check_viewbox(source, errors)
@@ -1154,7 +1208,7 @@ def main() -> int:
     argument_parser.add_argument(
         "--offline",
         action="store_true",
-        help="also fail on the Google Fonts link, for system-font output that makes no network requests",
+        help="also name a remote font <link> as an offline failure, for output that makes no network requests",
     )
     args = argument_parser.parse_args()
     failed = False
