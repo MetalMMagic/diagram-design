@@ -98,29 +98,37 @@ A self-contained palette for the terminal-window primitive (see [primitive-termi
 ### Font stack
 
 ```html
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Serif:ital@0;1&family=Noto+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@400&family=Noto+Sans+TC:wght@400;500;600&family=Noto+Serif+TC:wght@400&display=swap" rel="stylesheet">
+<style id="diagram-fonts"></style>
 ```
+
+Every template carries this empty style in `<head>`, where its fonts go. A page never links a font stylesheet: before it ships, the style is filled with one `@font-face` rule per face the page uses, each holding the whole woff2 file as data, so the page stays one file and loads nothing from another host:
+
+```css
+@font-face { font-family: "Geist"; font-weight: 400; src: url(data:font/woff2;base64,…) format("woff2"); }
+```
+
+The faces are Instrument Serif (regular and italic), Geist (400, 500, 600), and Geist Mono (400, 500, 600); all three families are SIL Open Font License, which allows embedding. No Noto face is embedded: a CJK font file runs to several megabytes, so Korean, Chinese, and Cyrillic text resolves through the system faces its stack names (see below). `self_check.py` passes woff2 data inside `@font-face` only, and fails it anywhere else and every remote stylesheet.
 
 ### Font source
 
-The font source decides whether a diagram makes any network request. It is a skin setting, so a saved profile carries it too.
+The font source decides which faces a diagram carries. Neither value makes a network request. It is a skin setting, so a saved profile carries it too.
 
-Font source: `web`
+Font source: `embedded`
 
 | Value | What ships | Network |
 |---|---|---|
-| `web` (default) | The Google Fonts `<link>` above; text renders in Instrument Serif, Geist, and Geist Mono | One stylesheet request to `fonts.googleapis.com`, plus the font files |
-| `system` | No font `<link>`; every family stack falls through to the platform's own serif, sans, and monospace faces | None |
+| `embedded` (default) | The `diagram-fonts` style above, filled with `@font-face` rules holding the fonts as woff2 data; text renders in Instrument Serif, Geist, and Geist Mono | None |
+| `system` | The `diagram-fonts` style left empty; every family stack falls through to the platform's own serif, sans, and monospace faces | None |
 
-Use `system` when the user asks for offline output, system fonts, or no Google Fonts, or when this line says `system`. In `system` mode:
+Use `system` when the user asks for system fonts or the smallest file, or when this line says `system`. In `system` mode:
 
-- Omit the font `<link>` (and the export `@import`) entirely. Keep every `font-family` stack as written: each one already ends in a generic family (`serif`, `system-ui, sans-serif`, `ui-monospace, monospace`), so a viewer who has Geist installed still gets it and everyone else gets their system face.
+- Leave the `diagram-fonts` style empty. Keep every `font-family` stack as written: each one already ends in a generic family (`serif`, `system-ui, sans-serif`, `ui-monospace, monospace`), so a viewer who has Geist installed still gets it and everyone else gets their system face.
 - Fallback faces have different metrics from Geist, so keep the 8px label padding intact rather than trimming boxes to the Geist measurement.
-- Export with `python3 scripts/export_svg.py <file> --system-fonts`, and verify with `python3 scripts/self_check.py --offline <file>`, which fails if the Google Fonts link is still present.
+- Export with `python3 scripts/export_svg.py <file> --system-fonts`, which leaves the page's `@font-face` rules out of the SVG, and verify with `python3 scripts/self_check.py --offline <file>`, which fails a page that still links a remote stylesheet.
 
-The render linter's default run (`lint-render.py` with network blocked) measures exactly this fallback rendering, so every shipped template and example is already checked in system-font mode.
+The render linter's default run (`lint-render.py` with network blocked) measures exactly this fallback rendering, so every shipped template and example, whose `diagram-fonts` style is empty, is already checked in system-font mode.
 
-To keep the editorial faces with no network at all, install Instrument Serif, Geist, and Geist Mono locally (all three are SIL Open Font License) and use `system`: the stacks resolve to the installed faces first.
+A viewer who has Instrument Serif, Geist, and Geist Mono installed locally gets the editorial faces in `system` mode too: the stacks resolve to the installed faces first.
 
 ### Korean labels
 
@@ -130,7 +138,7 @@ Geist and Instrument Serif carry no Hangul. A Korean `<text>` element extends it
 <text font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">결제 서비스</text>
 ```
 
-Both Noto faces ship in the font link above, so the web font resolves before any locally installed one and the same file renders identically on macOS, Windows, and a reviewer's browser. The local families follow it for offline viewing. Page titles need the serif equivalent — `'Instrument Serif', 'Noto Serif KR', serif` — or a mixed Latin/Korean title resolves Hangul through the platform's generic serif and the two halves disagree. Google's `css2` endpoint slices Korean by unicode-range, so a diagram with a handful of Korean labels downloads only the slices it touches. The four templates carry both faces because a new diagram may contain Hangul; the shipped Latin-only examples keep the shorter link, since a file with no Hangul has nothing to resolve.
+No Noto face is embedded, so Hangul resolves through the stack: a locally installed Noto Sans KR first, then the platform faces that carry Hangul (Apple SD Gothic Neo on macOS, Malgun Gothic on Windows). Keep those system faces in every Korean stack; they are what most viewers see. Page titles need the serif equivalent — `'Instrument Serif', 'Noto Serif KR', serif` — or a mixed Latin/Korean title resolves Hangul through the platform's generic serif and the two halves disagree. The four templates name the Noto faces in their stacks because a new diagram may contain Hangul.
 
 **Width budget.** Measure per character, not per script: **every Unicode wide or full-width character costs 1em, every other character costs its face's Latin advance** (0.60em sans, 0.62em mono), and nonspacing/enclosing marks cost nothing. Sum over the string and multiply by the font size for the text width, then add padding and round the box up to the next multiple of 4. `verify-treemap.py` enforces exactly this text width for treemap cell labels. The skill's `scripts/self_check.py` applies the same width, plus any letter-spacing, to text inside a visible box of any type, and fails a label that runs more than 0.3em past the box edge. Padding, rounding, and labels on paper-coloured arrow-label masks are not checked, so those stay yours to hold.
 
@@ -152,7 +160,7 @@ Geist and Instrument Serif carry no Han. A Traditional Chinese `<text>` element 
 <text font-family="'Geist', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif">請求項比對</text>
 ```
 
-Both Noto TC faces ship in the font link above, so the web font resolves before any locally installed one and the same file renders identically on macOS, Windows, and a reviewer's browser. The local families follow it for offline viewing. Page titles need the serif equivalent — `'Instrument Serif', 'Noto Serif TC', serif` — or a mixed Latin/Han title resolves Han through the platform's generic serif and the two halves disagree. Google's `css2` endpoint slices Chinese by unicode-range, so a diagram with a handful of Chinese labels downloads only the slices it touches.
+No Noto TC face is embedded, so Han resolves through the stack: a locally installed Noto Sans TC first, then the platform faces (PingFang TC on macOS, Microsoft JhengHei on Windows). Keep those system faces in every Traditional Chinese stack. Page titles need the serif equivalent — `'Instrument Serif', 'Noto Serif TC', serif` — or a mixed Latin/Han title resolves Han through the platform's generic serif and the two halves disagree.
 
 **Width budget.** The per-character contract above is unchanged: every Unicode wide or full-width character costs 1em, every other character costs its face's Latin advance, and nonspacing marks cost nothing. Full-width punctuation — `（）「」，。：` — is wide and costs 1em as well, which is the part most often dropped.
 
@@ -164,15 +172,15 @@ Three rules follow from Han metrics, mirroring the Hangul ones:
 - **Floor of 12px.** Han packs more strokes than Hangul into the same em box, so the 12px floor binds at least as hard here. If a Chinese name doesn't fit at 12px, cut the name — don't shrink the type.
 - **Arrow labels, eyebrows, and legend text switch register.** Those slots are 7–8px Geist Mono, uppercase and tracked, which Han has neither a face nor legibility for. A Chinese label in one of those slots becomes 12px sans at weight 500 with no tracking and no uppercase transform, and its mask rect grows to match (16px tall, width from the budget above, still rounded to a multiple of 4). Latin labels in the same diagram keep the mono treatment.
 
-Simplified Chinese takes the same three rules with the Simplified stack (`'Noto Sans SC'`, `'PingFang SC'`, `'Microsoft YaHei'`). That face does not ship in the link, so Simplified labels still resolve through whatever the viewer has locally.
+Simplified Chinese takes the same three rules with the Simplified stack (`'Noto Sans SC'`, `'PingFang SC'`, `'Microsoft YaHei'`). No CJK face is embedded, so Simplified labels resolve through whatever the viewer has locally, as Korean and Traditional Chinese do.
 
 ### Cyrillic labels
 
 Geist and Geist Mono ship Cyrillic (`cyrillic` and `cyrillic-ext` on Google Fonts), so names, sublabels, arrow labels, eyebrows, and legend text in Bulgarian, Russian, Ukrainian, or Serbian keep the Latin treatment: same faces, sizes, tracking, and uppercase. There is no register switch: Hangul and Han switch register because Geist Mono has no face for them, and Geist Mono does cover Cyrillic.
 
-Instrument Serif carries no Cyrillic. A page title extends its family — `'Instrument Serif', 'Noto Serif', serif` — or a mixed Latin/Cyrillic title resolves Cyrillic through whatever face comes next and the two halves disagree. Noto Serif ships in the font link above, upright and italic, so an italic callout in Cyrillic takes the same stack.
+Instrument Serif carries no Cyrillic. A page title extends its family — `'Instrument Serif', 'Noto Serif', serif` — or a mixed Latin/Cyrillic title resolves Cyrillic through whatever face comes next and the two halves disagree. Noto Serif is not embedded: a viewer who has it installed gets it, upright and italic, and anyone else gets the platform serif, so an italic callout in Cyrillic takes the same stack.
 
-**Noto Serif goes ahead of the CJK serifs.** When a stack also lists `'Noto Serif KR'` or `'Noto Serif TC'`, put `'Noto Serif'` ahead of them. Google Fonts slices Cyrillic into those faces as well, so a stack that reaches a CJK face first draws its Cyrillic from it. That is why the templates put `'Noto Serif'` between `'Instrument Serif'` and `'Noto Serif KR'`; Noto Serif has no Hangul or Han, so Korean and Chinese titles pass straight through it.
+**Noto Serif goes ahead of the CJK serifs.** When a stack also lists `'Noto Serif KR'` or `'Noto Serif TC'`, put `'Noto Serif'` ahead of them. Those CJK faces carry Cyrillic as well, so a stack that reaches a CJK face first draws its Cyrillic from it. That is why the templates put `'Noto Serif'` between `'Instrument Serif'` and `'Noto Serif KR'`; Noto Serif has no Hangul or Han, so Korean and Chinese titles pass straight through it.
 
 **Width budget.** The per-character contract above is unchanged: every character costs its face's Latin advance (0.60em sans, 0.62em mono). It fits Geist Mono exactly and Geist sans only on average. Geist Mono is monospaced: a Cyrillic glyph advances exactly as far as a Latin one, so sublabels, arrow labels, eyebrows, legend text, and their mask rects are sized as for Latin. Geist sans is not. Its wide Cyrillic letters, capitals and lowercase alike (such as `Ж Ш Щ Ю Ы`, `ж ш щ ы ю`), run well past the 0.60em average: `Шкаф ODF-2` at 12px is budgeted at 72px and draws at about 76. Rounding the box up to a multiple of 4 recovers at most 3px, so it is not the remedy. Leave the overshoot in the box padding and measure a Cyrillic sans name in the browser — `verify-treemap.py` holds the budget, not the drawn width, so it will not catch the overshoot.
 

@@ -34,7 +34,7 @@ If the user explicitly asks for "a screenshot of the whole page including the ca
 python3 scripts/export_svg.py <html-file> [<out.svg>] [--system-fonts]
 ```
 
-`--system-fonts` skips the Google Fonts `@import` and carried `@font-face` declarations (step 5) so the SVG makes no network request; use it when the skin's font source is `system` (see [style-guide.md § Font source](style-guide.md#font-source)). The diagram CSS still carries over.
+The SVG never writes an `@import`, so it makes no network request in either mode. `--system-fonts` also leaves out the carried `@font-face` declarations (step 5), so the SVG carries no font and its stacks fall through to installed faces; use it when the skin's font source is `system` (see [style-guide.md § Font source](style-guide.md#font-source)). The diagram CSS still carries over.
 
 Source read and output write failures return exit 2 with an error diagnostic. The viewport must contain four finite SVG numbers with positive width and height; empty or disabled viewports are refused. The class-without-style gate inspects nonempty actual `class` attributes; comments, visible text, empty class values, and `data-class` metadata do not require a stylesheet. Export selects a live SVG and carries live style blocks; HTML comments and script literals do not contribute diagrams or CSS. The selected SVG ends at its own closing tag, so nested icon `<svg>` elements stay inside it. Comments inside the selected SVG remain intact, except that XML forbids `--` inside a comment and a comment ending in `-`: each `--` becomes `- -` and a trailing `-` gets a space. That script is the source of truth for the transform below (CSS carry-forward, defs ID namespacing, rgba normalization, and the class-without-style gate). Reimplement only when the helper is unavailable; keep the behaviour identical.
 
@@ -61,10 +61,10 @@ Numeric character references in text and attributes follow HTML decoding, includ
    - **Drop** page chrome: `*`, `html`, `body`, `main`, `h1`/`h2`/`h3`, `p`, `.frame`, `.eyebrow`, `.summary`, `.card(s)`, `.footer`, `.header`, and the bare `svg { min-width: … }` layout rule. Only the bare `svg` selector is layout; `svg .zone` and `svg text` are diagram rules (see above). Those must not follow a fragment.
    - Carry `color` and `font-family` from the dropped `body` rule onto `#<slug>-root`. SVG content inherits both: `stroke="currentColor"` reads `color`, and text without its own font rule reads `font-family`.
    - **XML-escape** the carried CSS text (`&` → `&amp;`, `<` → `&lt;`) before inserting it into the SVG. Rule bodies can contain XML-sensitive characters (e.g. `content: "R&D"`); a bare `&` makes the standalone file fail to parse.
-5. Inject Google Fonts `@import` so the SVG renders with correct typography in a browser. **XML-escape the `&` separators as `&amp;`** — a standalone `.svg` is parsed as strict XML, where a bare `&` starts an entity reference and makes the whole file fail to parse. (Don't copy the raw URL from the HTML `<link href>`; that ampersand form is only valid in HTML.) Merge into the same `<defs>` `<style>` as the carried rules (don't add a second `<defs>`). If a new `<defs>` is needed, insert it after the existing leading `<title>` and `<desc>` so the first-child accessible-title contract is preserved:
+5. **Carry the page's fonts.** The page's `@font-face` rules, which hold its fonts as woff2 data in its `<style id="diagram-fonts">`, travel with the carried CSS of step 4, as written, so the SVG renders with correct typography in a browser. Never write an `@import`, and drop any `@import` the page has, so the SVG makes no network request. With `--system-fonts`, leave the `@font-face` rules out too. Merge into the same `<defs>` `<style>` as the carried rules (don't add a second `<defs>`). If a new `<defs>` is needed, insert it after the existing leading `<title>` and `<desc>` so the first-child accessible-title contract is preserved:
      ```svg
      <defs>
-       <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+       <style>@font-face { font-family: "Geist"; font-weight: 400; src: url(data:font/woff2;base64,…) format("woff2"); }
        /* …scoped diagram rules… */
        </style>
        <!-- existing markers / patterns stay here -->
@@ -277,13 +277,13 @@ Numeric character references in text and attributes follow HTML decoding, includ
    ```
 
    Channels and alpha are clamped to the CSS ranges 0–255 and 0–1 so out-of-range rgba values retain their browser paint when converted. The `\s*` around each channel tolerates a spaced `rgba(45, 49, 66, 0.03)` as well as the compact `rgba(45,49,66,0.03)` the templates normally use; `\d*\.?\d+` accepts an alpha value with or without a leading zero (both `0.03` and `.03` appear in shipped tokens). Matching is scoped to the `fill="..."` / `stroke="..."` presentation attribute. Class-styled diagrams may still carry `rgba(...)` inside the embedded `<style>` block via custom properties (e.g. `--accent-tint`); that form is correct in browsers and in Figma/Illustrator, and is out of scope for this presentation-attribute pass. (A brand's onboarded palette in `style-guide.md` could in principle add a third notation such as `hsl()`; none exists in any shipped token today, so this pass doesn't handle it — extend the regex if one is ever introduced.)
-8. **Gate:** if the exported SVG still contains `class=` but no diagram CSS rules, stop and fix the CSS carry step — that fragment will render as black boxes. A fonts-only `<style>` (Google Fonts `@import` with no rules) does **not** satisfy the gate.
+8. **Gate:** if the exported SVG still contains `class=` but no diagram CSS rules, stop and fix the CSS carry step — that fragment will render as black boxes. A fonts-only `<style>` (`@font-face` with no rules) does **not** satisfy the gate.
 9. Prepend `<?xml version="1.0" encoding="UTF-8"?>\n` so the file is well-formed XML.
 10. Write to `<basename>.svg` next to the source (e.g. `example-architecture.html` → `example-architecture.svg`). Honour an explicit output path if the user provides one.
 
 ### Caveat to surface to the user
 
-Tools that don't fetch remote fonts at import time (offline Illustrator, some Figma import paths, older SVG viewers) will substitute typography. The SVG renders correctly in any modern browser. For pixel-perfect portability, recommend the PNG export.
+Tools that don't read `@font-face` data at import time (offline Illustrator, some Figma import paths, older SVG viewers) will substitute typography. The SVG renders correctly in any modern browser. For pixel-perfect portability, recommend the PNG export.
 
 ## PNG export procedure
 
@@ -359,7 +359,7 @@ If the target aspect ratio doesn't match the `viewBox` aspect ratio, say so and 
 - **Source is `assets/index.html`** (the gallery, multiple SVGs in one file): refuse the export and ask the user which specific diagram file they meant. Don't guess.
 - **No `<svg>` block found**: the source isn't a diagram file. Tell the user; don't write anything.
 - **Surrounding HTML matters to the user**: they want cards/header in the image. Tell them this skill exports diagrams only, and recommend a browser-based full-page screenshot (or a separate PDF print).
-- **Source is missing fonts at runtime**: Playwright will substitute, the screenshot will look off. Check that the source HTML has the `<link href="...fonts.googleapis.com...">` tag in `<head>`. If absent, the file isn't from a current template — fix the source rather than working around it in export.
+- **Source is missing fonts at runtime**: Playwright will substitute, the screenshot will look off. Check that the source HTML's `<style id="diagram-fonts">` in `<head>` holds its `@font-face` rules. If the style is empty, the page uses system fonts by its font source or was never filled; if it is absent, the file isn't from a current template — fix the source rather than working around it in export.
 
 ## What this command never does
 

@@ -105,9 +105,9 @@ If the site has only one family, keep the schematic defaults for the missing rol
 Do not replace a detected brand family with `serif`, `system-ui`, or `ui-monospace` merely to make the file dependency-free. A public font is part of the visual system.
 
 1. Record the computed family and weight used by the sampled heading, body, and technical-label elements.
-2. Trace each family to its source: an existing Google Fonts stylesheet, an installed/system stack, or a custom-hosted `@font-face`.
-3. If it is available through Google Fonts, carry the exact family name, weights, and approved stylesheet into the style guide and generated HTML. The single-file allowlist accepts only a parsed HTTPS URL whose hostname is exactly `fonts.googleapis.com` and whose path is exactly `/css2`; prefix/lookalike hosts and other paths fail. Preserve an intentional system stack in order and verify the resolved family on the target machine.
-4. A custom-hosted or paid font is not compatible with the default single-file allowlist. Label that role `fallback` unless the user separately approves and packages the font; never silently add a remote font URL or claim an exact match.
+2. Trace each family to its source: a hosted font stylesheet (Google Fonts or another service), an installed/system stack, or a custom-hosted `@font-face`.
+3. A generated page loads nothing from another host: its fonts are embedded as woff2 data in `@font-face` rules inside `<style id="diagram-fonts">` (see [style-guide.md § Font source](style-guide.md#font-source)), and `self_check.py` fails every remote stylesheet, a font stylesheet included. If the family's licence allows embedding (the SIL Open Font License does), carry the exact family name and weights into the style guide and embed its woff2 files. Preserve an intentional system stack in order and verify the resolved family on the target machine.
+4. A paid font, or one whose licence does not allow embedding, is not compatible with the single-file rule. Label that role `fallback` unless the user separately approves and packages the font; never silently add a remote font URL or claim an exact match.
 5. Verify the rendered output with `getComputedStyle`; a declared family that failed to load does not pass.
 
 For a page containing bespoke diagrams or editorial figures, inspect their rendered font roles as well as the surrounding article. A figure-specific stylesheet may intentionally differ from the site's global heading/body stack.

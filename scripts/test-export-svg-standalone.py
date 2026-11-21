@@ -52,7 +52,6 @@ def exportable_assets() -> list[Path]:
 # A woff2 header in base64, as a page carries its fonts after generation.
 FONT_DATA = "data:font/woff2;base64,d09GMgABAAAAAA//8AAA+/=="
 FONT_MARKER = '<style id="diagram-fonts"></style>'
-FONT_LINK_RE = re.compile(r"<link\b[^>]*fonts\.googleapis\.com[^>]*>", re.IGNORECASE)
 
 
 def embedded_font_page(source: str) -> str:
@@ -61,10 +60,9 @@ def embedded_font_page(source: str) -> str:
         f'@font-face{{font-family:"Geist";font-weight:400;src:url({FONT_DATA}) format("woff2")}}'
         f'@font-face{{font-family:"Instrument Serif";src:url("{FONT_DATA}") format("woff2")}}'
     )
-    page = FONT_LINK_RE.sub(FONT_MARKER, source, count=1)
-    if FONT_MARKER not in page:
+    if FONT_MARKER not in source:
         raise AssertionError("fixture page has no font marker to fill")
-    return page.replace(FONT_MARKER, f'<style id="diagram-fonts">{faces}</style>', 1)
+    return source.replace(FONT_MARKER, f'<style id="diagram-fonts">{faces}</style>', 1)
 
 
 def embedded_css(svg: str) -> str:

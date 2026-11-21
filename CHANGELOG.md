@@ -20,6 +20,7 @@ Versioning note: pull requests do not edit the plugin version. After each merge 
 - The README is reorganized around a demo, a comparison table, and separate install sections.
 - The packaged self-check passes fonts embedded as woff2 data inside `@font-face`, fails the same data anywhere else, and fails every remote stylesheet, Google Fonts included.
 - An exported SVG carries the page's own `@font-face` rules and writes no `@import`, so it makes no font request; `--system-fonts` leaves the fonts out.
+- Templates and examples carry an empty `<style id="diagram-fonts">` where the Google Fonts link was; a page's fonts are embedded there as data, and no Noto face is linked (CJK stacks keep their system faces). The font source is `embedded` by default, or `system`.
 
 ### Fixed
 

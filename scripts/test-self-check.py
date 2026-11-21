@@ -17,7 +17,7 @@ EXAMPLE = ASSET_DIR / "example-policy-trace-animated.html"
 STATIC_EXAMPLE = ASSET_DIR / "example-architecture.html"
 # Pages carry their fonts as data in this style; no page loads a font stylesheet.
 FONT_MARKER = '<style id="diagram-fonts"></style>'
-FONT_LINK_RE = re.compile(r"<link\b[^>]*fonts\.googleapis\.com[^>]*>", re.IGNORECASE)
+FONT_HOST_RE = re.compile(r"fonts\.googleapis\.com|fonts\.gstatic\.com", re.IGNORECASE)
 GOOGLE_FONTS_LINK = (
     '<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600'
     '&display=swap" rel="stylesheet">'
@@ -28,11 +28,6 @@ FONT_DATA = "data:font/woff2;base64,d09GMgABAAAAAA//8AAA+/=="
 
 def font_face(src: str, family: str = "Geist", weight: int = 400) -> str:
     return f'@font-face{{font-family:"{family}";font-weight:{weight};src:{src} format("woff2")}}'
-
-
-def with_font_marker(source: str) -> str:
-    """The page as it is generated: the font marker where a font link stood."""
-    return FONT_LINK_RE.sub(FONT_MARKER, source, count=1)
 
 
 def load_self_check():
@@ -70,12 +65,24 @@ def main() -> int:
             candidate.write_text(source, encoding="utf-8")
             check_pass(label, candidate)
 
-    static = with_font_marker(STATIC_EXAMPLE.read_text(encoding="utf-8"))
-    animated = with_font_marker(EXAMPLE.read_text(encoding="utf-8"))
+    check_pass("shipped template", TEMPLATE)
+    check_pass("shipped animated example", EXAMPLE)
+    check_pass("shipped static example", STATIC_EXAMPLE)
 
-    check_source_pass("shipped template", with_font_marker(TEMPLATE.read_text(encoding="utf-8")))
-    check_source_pass("shipped animated example", animated)
-    check_source_pass("shipped static example", static)
+    static = STATIC_EXAMPLE.read_text(encoding="utf-8")
+    animated = EXAMPLE.read_text(encoding="utf-8")
+
+    # Every shipped page carries the font marker once and names no font host.
+    unmarked = [
+        asset.name
+        for asset in sorted(ASSET_DIR.glob("*.html"))
+        if (text := asset.read_text(encoding="utf-8")).count(FONT_MARKER) != 1
+        or FONT_HOST_RE.search(text)
+    ]
+    if unmarked:
+        failures.append(f"shipped assets without one font marker or naming a font host: {unmarked}")
+    else:
+        print("OK: every shipped asset carries one font marker and names no font host")
 
     # Document completeness: truncation, mojibake and unbalanced markup must all fail.
     # The negative controls below are valid HTML that the balance count must not flag.
